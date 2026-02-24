@@ -6,13 +6,16 @@ import os
 import sys
 import io
 
-# Force UTF-8 encoding for Windows console
+# Add current and parent directory to sys.path for robust imports in Linux/Render
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.abspath(os.path.join(current_dir, "../"))
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
+
+# Ensure UTF-8 for logs
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
-# Add root to sys.path to import core modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 
 from core.agents.mimi_hometutor import build_mimi_graph
 from core.state import AgentState
@@ -26,13 +29,13 @@ app = FastAPI(title="Mimi Socratic API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for Cloud Deployment testing
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-print("MIMI_BACKEND_VERSION: 1.1.0 - MIMI_GRAPH_DEPLOYED", flush=True)
+print(f"MIMI_BACKEND_VERSION: 1.1.1 - MIMI_GRAPH_DEPLOYED - ROOT: {root_dir}", flush=True)
 
 class ChatRequest(BaseModel):
     message: str
