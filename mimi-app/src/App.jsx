@@ -8,13 +8,7 @@ import { useWindowSize } from 'react-use';
 
 const API_BASE = '/api';
 
-const SMART_CHIPS = [
-    "🚀 Lực hấp dẫn hoạt động như thế nào hả chị?",
-    "🚲 Tại sao phanh xe đạp lại tạo ra lực ma sát?",
-    "🫁 Phổi giúp chúng ta thở như thế nào ạ?",
-    "🩸 Máu chảy trong cơ thể mình ra sao chị nhỉ?",
-    "🍃 Tại sao thực vật lại quan trọng trong chuỗi thức ăn?"
-];
+// Đã gỡ bỏ Smart Chips theo yêu cầu
 
 const POSITIVE_KEYWORDS = ["giỏi quá", "xuất sắc", "đúng rồi", "chính xác", "tuyệt vời", "rất tốt", "hô hô", "chúc mừng"];
 
@@ -108,11 +102,13 @@ const MimiChat = () => {
 
         const utterance = new SpeechSynthesisUtterance(text);
 
-        // Find best Vietnamese voice
+        // Ưu tiên tìm giọng nữ tiếng Việt (ví dụ: Google, Hoài My), tránh giọng nam (Ví dụ: Microsoft An)
         const voices = window.speechSynthesis.getVoices();
-        const viVoice = voices.find(v => v.lang === 'vi-VN' && v.name.includes('Google')) ||
-            voices.find(v => v.lang === 'vi-VN') ||
-            voices.find(v => v.lang.startsWith('vi'));
+        const viVoice = voices.find(v => v.lang === 'vi-VN' && (v.name.includes('Hoài My') || v.name.includes('HoaiMy'))) ||
+            voices.find(v => v.lang === 'vi-VN' && v.name.includes('Female')) ||
+            voices.find(v => v.lang === 'vi-VN' && v.name.includes('Google')) ||
+            voices.find(v => v.lang === 'vi-VN' && !v.name.toLowerCase().includes('an')) ||
+            voices.find(v => v.lang === 'vi-VN');
 
         if (viVoice) {
             utterance.voice = viVoice;
@@ -184,8 +180,12 @@ const MimiChat = () => {
             setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
             checkAndTriggerConfetti(botResponse);
         } catch (err) {
-            console.error(err);
-            setMessages(prev => [...prev, { role: 'bot', content: 'Ối, có lỗi gì đó rồi. Em thử lại xem sao nhé!' }]);
+            console.error("API Error:", err);
+            const isNetlify = window.location.hostname.includes('netlify');
+            const errMsg = isNetlify
+                ? 'Lỗi kết nối: Vì giới hạn bảo mật, bản web trên Netlify không thể gọi được AI Backend đang chạy trên máy tính của anh (localhost:8000). Anh vui lòng truy cập http://localhost:3000 để sử dụng nhé!'
+                : 'Ối, kết nối với "não" của chị bị gián đoạn. Chị em mình thử lại nhé!';
+            setMessages(prev => [...prev, { role: 'bot', content: errMsg }]);
         } finally {
             setLoading(false);
         }
@@ -237,14 +237,6 @@ const MimiChat = () => {
             </div>
 
             <div className="input-outer-container">
-                <div className="smart-chips-wrapper">
-                    {SMART_CHIPS.map((chip, idx) => (
-                        <button key={idx} className="smart-chip" onClick={() => handleSend(chip)}>
-                            {chip}
-                        </button>
-                    ))}
-                </div>
-
                 <div className="input-container">
                     {selectedImage && (
                         <div className="image-preview">
