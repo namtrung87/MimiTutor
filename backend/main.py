@@ -223,6 +223,17 @@ async def mimi_chat_multimodal(
 
 @app.on_event("startup")
 async def startup_event():
+    # Diagnostic: Print folder structure
+    print(f"  [Startup] CWD: {os.getcwd()}")
+    try:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
+        print(f"  [Startup] Repo Root: {repo_root}")
+        print(f"  [Startup] Files in Root: {os.listdir(repo_root)}")
+        if os.path.exists(os.path.join(repo_root, "materials")):
+            print(f"  [Startup] Materials found in Root: {os.listdir(os.path.join(repo_root, 'materials'))}")
+    except Exception as e:
+        print(f"  [Startup] Diagnostic error: {e}")
+
     # Automatically sync Mimi Science material if present in materials folder
     try:
         from core.agents.policy_agent import KnowledgeAgent

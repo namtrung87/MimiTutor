@@ -61,19 +61,31 @@ class KnowledgeAgent:
         path = self.mimi_learning_path
         target_file = self.target_science_pdf
         
-        # Cloud Check: If external path doesn't exist, look for 'materials' folder in repo root
+        # Cloud Check: More robust pathing
         if not os.path.exists(path):
-            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-            alt_path = os.path.join(repo_root, "05_Mimi_HomeTutor", "materials")
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            backend_root = os.path.abspath(os.path.join(current_dir, "../../"))
+            
+            # Check for materials folder in the app root (backend_root)
+            alt_path = os.path.join(backend_root, "materials")
+            
             if os.path.exists(alt_path):
-                print(f"  [KnowledgeAgent] External path missing. Switching to local materials: {alt_path}")
+                print(f"  [KnowledgeAgent] Using app-relative materials: {alt_path}")
                 path = alt_path
             else:
-                os.makedirs(alt_path, exist_ok=True)
-                print(f"  [KnowledgeAgent] Please place {target_file} in {alt_path}")
-                return 0
+                # Fallback: check project root if different
+                project_root_materials = "/opt/render/project/src/materials"
+                if os.path.exists(project_root_materials):
+                     print(f"  [KnowledgeAgent] Using Render-project materials: {project_root_materials}")
+                     path = project_root_materials
+                else:
+                    os.makedirs(alt_path, exist_ok=True)
+                    print(f"  [KnowledgeAgent] Materials folder created at {alt_path}. Please place PDFs there.")
+                    return 0
 
-        print(f"--- Đang đồng bộ tài liệu Science cho Mimi từ: {path}/{target_file} ---")
+        print(f"--- Đang đồng bộ tài liệu Science từ: {path} ---")
+        files_present = os.listdir(path)
+        print(f"  [KnowledgeAgent] Files in path: {files_present}")
         
         # 1. Clear existing Mimi entries from store
         if hasattr(self.store, 'skills'):
