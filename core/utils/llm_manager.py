@@ -427,11 +427,13 @@ class LLMManager:
 
     def _setup_providers(self):
         # 1. Gemini (PRIMARY - Premium Brain from Google AI Pro)
-        gemini_keys = os.getenv("GEMINI_API_KEY", "").split(",")
+        gemini_keys = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").split(",")
         if any(k.strip() for k in gemini_keys):
             print(f"  [LLMManager] Initializing GeminiProviders (PRIMARY)...")
             self.providers.append(GeminiProvider(gemini_keys, "models/gemini-3-pro-preview"))
             self.providers.append(GeminiProvider(gemini_keys, "models/gemini-3-flash-preview"))
+        else:
+            print("  [WARNING] No Gemini/Google API keys found in environment variables!")
 
         # 2. Groq (Fast Fallback)
         groq_key = os.getenv("GROQ_API_KEY")

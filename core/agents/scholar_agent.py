@@ -72,7 +72,13 @@ class ScholarAgent(KnowledgeAgent):
     def _get_rule_based_response(self, user_input, context):
         """Offline fallback that provides direct info if available."""
         if not context:
-            return "Chào em! Anh/Chị đang gặp chút khó khăn khi kết nối với 'bộ não' thông minh, nhưng anh/chị vẫn ở đây hỗ trợ em nè. Em muốn hỏi về Science Unit 8 hay chủ đề nào trong sách Khoa học lớp 7 nhỉ?"
+            error_details = ""
+            if not os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
+                error_details = " (Lỗi: Thiếu API Key trên Render)"
+            elif not self.store.skills:
+                 error_details = " (Lỗi: Chưa nạp được sách Science)"
+                 
+            return f"Chào em! Anh/Chị đang gặp chút khó khăn khi kết nối với 'bộ não' thông minh{error_details}, nhưng anh/chị vẫn ở đây hỗ trợ em nè. Em muốn hỏi về Science Unit 8 hay chủ đề nào trong sách Khoa học lớp 7 nhỉ?"
         
         # Heuristic: try to find a relevant sentence
         input_lower = user_input.lower()

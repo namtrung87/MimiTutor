@@ -83,11 +83,14 @@ class KnowledgeAgent:
                 del self.store.skills[k]
             print(f"  [KnowledgeAgent] Cleared {len(keys_to_delete)} existing Mimi entries.")
 
-        # 2. Load only the target PDF
+        # 2. Load documents
         loader = DocumentLoader(knowledge_base_path=path)
         docs = loader.load_documents()
         
         count = 0
+        target_found = False
+        
+        # Priority 1: Look for exact target file
         for doc in docs:
             if doc['filename'] == target_file:
                 doc_card = {
@@ -99,7 +102,24 @@ class KnowledgeAgent:
                 }
                 self.store.add_skill(doc_card)
                 count += 1
+                target_found = True
                 break
+        
+        # Priority 2: If target not found, ingest ANY PDF in the materials folder
+        if not target_found:
+            pdf_docs = [d for d in docs if d['filename'].lower().endswith('.pdf')]
+            if pdf_docs:
+                print(f"  [KnowledgeAgent] Target PDF not found. Ingesting {len(pdf_docs)} alternative PDFs.")
+                for doc in pdf_docs:
+                    doc_card = {
+                        "title": f"Mimi Study Material: {doc['filename']}",
+                        "description": "Automatically indexed study material.",
+                        "logic_summary": doc["content"],
+                        "dependencies": [],
+                        "source_file": doc["filename"]
+                    }
+                    self.store.add_skill(doc_card)
+                    count += 1
         
         if count == 0:
             print(f"  [WARNING] Target Science PDF not found: {target_file}")
