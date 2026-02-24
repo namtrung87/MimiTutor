@@ -13,3 +13,5 @@ pypdf
 google-generativeai
 groq
 mcp
+posthog
+portkey-ai
