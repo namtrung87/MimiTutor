@@ -221,9 +221,34 @@ async def mimi_chat_multimodal(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.on_event("startup")
+async def startup_event():
+    # Automatically sync Mimi Science material if present in materials folder
+    try:
+        from core.agents.policy_agent import KnowledgeAgent
+        agent = KnowledgeAgent()
+        print("  [Startup] Checking for Science materials...")
+        count = agent.sync_mimi_learning()
+        if count > 0:
+            print(f"  [Startup] Knowledge Base updated with {count} science segments.")
+        else:
+            print("  [Startup] No new science materials indexed.")
+    except Exception as e:
+        print(f"  [Startup] Sync failed: {e}")
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.post("/mimi/sync")
+async def manual_sync():
+    try:
+        from core.agents.policy_agent import KnowledgeAgent
+        agent = KnowledgeAgent()
+        count = agent.sync_mimi_learning()
+        return {"status": "success", "ingested": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

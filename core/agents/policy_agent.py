@@ -56,12 +56,24 @@ class KnowledgeAgent:
     def sync_mimi_learning(self):
         """
         Ingests ONLY the specific Mimi Science textbook.
-        Clears existing Mimi entries first to ensure Science-only focus.
+        Supports both external paths and local 'materials' folder for cloud.
         """
         path = self.mimi_learning_path
         target_file = self.target_science_pdf
         
-        print(f"--- Đang đồng bộ tài liệu Science cho Mimi từ: {target_file} ---")
+        # Cloud Check: If external path doesn't exist, look for 'materials' folder in repo root
+        if not os.path.exists(path):
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+            alt_path = os.path.join(repo_root, "05_Mimi_HomeTutor", "materials")
+            if os.path.exists(alt_path):
+                print(f"  [KnowledgeAgent] External path missing. Switching to local materials: {alt_path}")
+                path = alt_path
+            else:
+                os.makedirs(alt_path, exist_ok=True)
+                print(f"  [KnowledgeAgent] Please place {target_file} in {alt_path}")
+                return 0
+
+        print(f"--- Đang đồng bộ tài liệu Science cho Mimi từ: {path}/{target_file} ---")
         
         # 1. Clear existing Mimi entries from store
         if hasattr(self.store, 'skills'):
