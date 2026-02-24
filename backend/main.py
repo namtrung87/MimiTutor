@@ -38,7 +38,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-print(f"MIMI_BACKEND_VERSION: 1.1.1 - MIMI_GRAPH_DEPLOYED - ROOT: {root_dir}", flush=True)
+@app.get("/")
+async def root():
+    return {
+        "message": "Mimi Socratic API is online!",
+        "version": "1.1.2",
+        "endpoints": ["/mimi/chat", "/health", "/mimi/chat/multimodal"]
+    }
+
+print(f"MIMI_BACKEND_VERSION: 1.1.2 - MIMI_GRAPH_DEPLOYED - ROOT: {root_dir}", flush=True)
 
 class ChatRequest(BaseModel):
     message: str

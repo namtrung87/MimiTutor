@@ -16,3 +16,4 @@ mcp
 posthog
 portkey-ai
 mem0ai
+chromadb
