@@ -1,8 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, User, MessageCircle, Mic, Image as ImageIcon, X, Sparkles } from 'lucide-react';
+import { Send, User, Mic, Image as ImageIcon, X, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import Confetti from 'react-confetti';
+import { useWindowSize } from 'react-use';
 
 const API_BASE = '/api';
+
+const SMART_CHIPS = [
+    "🌌 Kể chị nghe về Hố đen vũ trụ đi!",
+    "🧬 Tại sao máu lại có màu đỏ vậy chị?",
+    "📚 Làm sao để tính diện tích hình tròn dễ nhớ nhất?",
+    "💡 Trí tuệ nhân tạo (AI) học như thế nào?",
+    "🦊 Chị kể cho em một câu chuyện cổ tích nha!"
+];
+
+const POSITIVE_KEYWORDS = ["giỏi quá", "xuất sắc", "đúng rồi", "chính xác", "tuyệt vời", "rất tốt", "hô hô", "chúc mừng"];
+
+const BouncingHeartsLoader = () => (
+    <div className="bouncing-hearts">
+        <span className="heart" style={{ animationDelay: '0s' }}>💖</span>
+        <span className="heart" style={{ animationDelay: '0.2s' }}>💖</span>
+        <span className="heart" style={{ animationDelay: '0.4s' }}>💖</span>
+        <span className="loading-text">Chị đang suy nghĩ...</span>
+    </div>
+);
 
 const MimiChat = () => {
     const [messages, setMessages] = useState([
@@ -12,18 +35,21 @@ const MimiChat = () => {
     const [loading, setLoading] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
     const [isRecording, setIsRecording] = useState(false);
+    const [showConfetti, setShowConfetti] = useState(false);
+    const [speakingIndex, setSpeakingIndex] = useState(null);
+
     const scrollRef = useRef(null);
     const fileInputRef = useRef(null);
     const recognitionRef = useRef(null);
+    const { width, height } = useWindowSize();
 
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages]);
+    }, [messages, loading]);
 
     useEffect(() => {
-        // Initialize Speech Recognition
         if ('webkitSpeechRecognition' in window) {
             const SpeechRecognition = window.webkitSpeechRecognition;
             recognitionRef.current = new SpeechRecognition();
@@ -72,12 +98,37 @@ const MimiChat = () => {
         }
     };
 
-    const handleSend = async () => {
-        if ((!input.trim() && !selectedImage) || loading) return;
+    const handleSpeak = (text, index) => {
+        if (speakingIndex === index) {
+            window.speechSynthesis.cancel();
+            setSpeakingIndex(null);
+            return;
+        }
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'vi-VN';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.1; // slightly higher pitch for friendly tone
+        utterance.onend = () => setSpeakingIndex(null);
+        setSpeakingIndex(index);
+        window.speechSynthesis.speak(utterance);
+    };
 
-        const userMsg = input.trim();
+    const checkAndTriggerConfetti = (text) => {
+        const lowerText = text.toLowerCase();
+        if (POSITIVE_KEYWORDS.some(kw => lowerText.includes(kw))) {
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 5000);
+        }
+    };
+
+    const handleSend = async (customInput = null) => {
+        const currentInput = customInput || input;
+        if ((!currentInput.trim() && !selectedImage) || loading) return;
+
+        const userMsg = currentInput.trim();
         const hasImage = !!selectedImage;
-        const currentImage = selectedImage; // closure capture
+        const currentImage = selectedImage;
 
         setInput('');
         setSelectedImage(null);
@@ -89,6 +140,9 @@ const MimiChat = () => {
             image: currentImage ? URL.createObjectURL(currentImage) : null
         }]);
         setLoading(true);
+        setShowConfetti(false);
+        window.speechSynthesis.cancel();
+        setSpeakingIndex(null);
 
         try {
             let data;
@@ -100,7 +154,7 @@ const MimiChat = () => {
 
                 const res = await fetch(`${API_BASE}/mimi/chat/multimodal`, {
                     method: 'POST',
-                    body: formData // No Content-Type, browser sets multipart/form-data
+                    body: formData
                 });
                 data = await res.json();
             } else {
@@ -111,7 +165,9 @@ const MimiChat = () => {
                 });
                 data = await res.json();
             }
-            setMessages(prev => [...prev, { role: 'bot', content: data.response }]);
+            const botResponse = data.response;
+            setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
+            checkAndTriggerConfetti(botResponse);
         } catch (err) {
             console.error(err);
             setMessages(prev => [...prev, { role: 'bot', content: 'Ối, có lỗi gì đó rồi. Em thử lại xem sao nhé!' }]);
@@ -122,6 +178,8 @@ const MimiChat = () => {
 
     return (
         <div className="chat-container">
+            {showConfetti && <Confetti width={width} height={height} numberOfPieces={300} recycle={false} />}
+
             <div className="messages" ref={scrollRef}>
                 <AnimatePresence>
                     {messages.map((msg, i) => (
@@ -136,64 +194,71 @@ const MimiChat = () => {
                             </div>
                             <div className="content">
                                 {msg.image && (
-                                    <img src={msg.image} alt="User Upload" style={{ maxWidth: '100%', borderRadius: '0.5rem', marginBottom: '0.5rem' }} />
+                                    <img src={msg.image} alt="Upload" style={{ maxWidth: '100%', borderRadius: '0.5rem', marginBottom: '0.5rem' }} />
                                 )}
-                                {msg.content}
+                                {msg.role === 'bot' ? (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} className="markdown-content">
+                                        {msg.content}
+                                    </ReactMarkdown>
+                                ) : (
+                                    <div>{msg.content}</div>
+                                )}
+                                {msg.role === 'bot' && (
+                                    <button
+                                        className="tts-btn"
+                                        onClick={() => handleSpeak(msg.content, i)}
+                                        title="Đọc câu trả lời"
+                                    >
+                                        {speakingIndex === i ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                                    </button>
+                                )}
                             </div>
                         </motion.div>
                     ))}
                 </AnimatePresence>
-                {loading && <div className="loading" style={{ color: 'var(--primary)', textAlign: 'center', margin: '1rem 0' }}>Chị đang suy nghĩ... ✨</div>}
+                {loading && <BouncingHeartsLoader />}
             </div>
 
-            <div className="input-container">
-                {selectedImage && (
-                    <div className="image-preview">
-                        <img src={URL.createObjectURL(selectedImage)} alt="Preview" />
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{selectedImage.name}</span>
-                        <button onClick={removeImage}><X size={16} /></button>
+            <div className="input-outer-container">
+                <div className="smart-chips-wrapper">
+                    {SMART_CHIPS.map((chip, idx) => (
+                        <button key={idx} className="smart-chip" onClick={() => handleSend(chip)}>
+                            {chip}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="input-container">
+                    {selectedImage && (
+                        <div className="image-preview">
+                            <img src={URL.createObjectURL(selectedImage)} alt="Preview" />
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{selectedImage.name}</span>
+                            <button onClick={removeImage}><X size={16} /></button>
+                        </div>
+                    )}
+
+                    <div className="input-area">
+                        <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" style={{ display: 'none' }} />
+
+                        <button className="action-btn" onClick={() => fileInputRef.current?.click()} title="Tải ảnh lên">
+                            <ImageIcon size={20} />
+                        </button>
+
+                        <button className={`action-btn ${isRecording ? 'recording' : ''}`} onClick={toggleRecording} title={isRecording ? "Đang nghe..." : "Nhấn để nói"}>
+                            <Mic size={20} />
+                        </button>
+
+                        <input
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                            placeholder={isRecording ? "Chị đang nghe em nói nè..." : "Hãy hỏi chị bất cứ điều gì nha..."}
+                        />
+
+                        <button className="send-btn" onClick={() => handleSend()} disabled={loading || (!input.trim() && !selectedImage)}>
+                            <Send size={18} /> Gửi
+                        </button>
                     </div>
-                )}
-
-                <div className="input-area">
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleImageSelect}
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                    />
-
-                    <button
-                        className="action-btn"
-                        onClick={() => fileInputRef.current?.click()}
-                        title="Tải ảnh lên"
-                    >
-                        <ImageIcon size={20} />
-                    </button>
-
-                    <button
-                        className={`action-btn ${isRecording ? 'recording' : ''}`}
-                        onClick={toggleRecording}
-                        title={isRecording ? "Đang nghe..." : "Nhấn để nói"}
-                    >
-                        <Mic size={20} />
-                    </button>
-
-                    <input
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                        placeholder={isRecording ? "Chị đang nghe em nói nè..." : "Hãy hỏi chị bất cứ điều gì nha..."}
-                    />
-
-                    <button
-                        className="send-btn"
-                        onClick={handleSend}
-                        disabled={loading || (!input.trim() && !selectedImage)}
-                    >
-                        <Send size={18} /> Gửi chị
-                    </button>
                 </div>
             </div>
         </div>

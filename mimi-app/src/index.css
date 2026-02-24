@@ -132,6 +132,130 @@ main {
     /* Pink shadow */
     border: 1px solid var(--border);
     border-bottom-left-radius: 0.25rem;
+    position: relative;
+    padding-bottom: 2rem;
+    /* space for TTS */
+}
+
+/* --- TTS Button --- */
+.tts-btn {
+    position: absolute;
+    bottom: 0.25rem;
+    right: 0.5rem;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.tts-btn:hover {
+    background: var(--bg);
+    color: var(--primary);
+}
+
+/* --- Markdown Styling --- */
+.markdown-content p {
+    margin-bottom: 0.5rem;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+    margin-left: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.markdown-content strong {
+    color: var(--primary-hover);
+}
+
+.markdown-content:last-child {
+    margin-bottom: 0;
+}
+
+/* --- Smart Chips --- */
+.input-outer-container {
+    background: var(--card);
+    border-top: 2px solid var(--border);
+    display: flex;
+    flex-direction: column;
+}
+
+.smart-chips-wrapper {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.smart-chips-wrapper::-webkit-scrollbar {
+    height: 4px;
+}
+
+.smart-chips-wrapper::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 4px;
+}
+
+.smart-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--primary-hover);
+    padding: 0.5rem 1rem;
+    border-radius: 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.smart-chip:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px -1px rgba(244, 114, 182, 0.2);
+}
+
+/* --- Bouncing Hearts Loader --- */
+.bouncing-hearts {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.25rem;
+    margin: 1rem 0;
+    padding-left: 3.5rem;
+    /* Align with avatar */
+}
+
+.bouncing-hearts .heart {
+    font-size: 1.25rem;
+    animation: bounce 1s infinite alternate;
+}
+
+.bouncing-hearts .loading-text {
+    color: var(--primary);
+    font-weight: 600;
+    margin-left: 0.25rem;
+    font-size: 0.9rem;
+}
+
+@keyframes bounce {
+    from {
+        transform: translateY(0);
+    }
+
+    to {
+        transform: translateY(-8px);
+    }
 }
 
 .input-container {
