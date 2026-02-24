@@ -1,0 +1,18 @@
+# MimiTutor Gitignore
+node_modules/
+.venv/
+__pycache__/
+.env
+*.db
+*.log
+*.txt
+dist/
+build/
+.DS_Store
+.idea/
+.vscode/
+temp/
+research_results/
+memory_storage/
+mimi_interactions.db
+llm_error.txt
