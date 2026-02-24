@@ -22,7 +22,17 @@ import shutil
 extractor = MultimodalExtractor()
 
 app = FastAPI(title="Mimi Socratic API")
-print("MIMI_BACKEND_VERSION: 1.1.0 - MIMI_GRAPH_DEPLOYED", flush=True)
+
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow all origins for simplicity, can be restricted to Netlify later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+print("MIMI_BACKEND_VERSION: 1.1.1 - CORS_ENABLED", flush=True)
 
 class ChatRequest(BaseModel):
     message: str
