@@ -6,7 +6,8 @@ import remarkGfm from 'remark-gfm';
 import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
 
-const API_BASE = '/api';
+// Use VITE_API_URL from environment variables if available, otherwise fallback to '/api' (for local Vite proxy)
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // Đã gỡ bỏ Smart Chips theo yêu cầu
 

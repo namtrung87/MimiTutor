@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import os
@@ -23,16 +24,15 @@ extractor = MultimodalExtractor()
 
 app = FastAPI(title="Mimi Socratic API")
 
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all origins for simplicity, can be restricted to Netlify later
+    allow_origins=["*"],  # Allows all origins for Cloud Deployment testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-print("MIMI_BACKEND_VERSION: 1.1.1 - CORS_ENABLED", flush=True)
+print("MIMI_BACKEND_VERSION: 1.1.0 - MIMI_GRAPH_DEPLOYED", flush=True)
 
 class ChatRequest(BaseModel):
     message: str

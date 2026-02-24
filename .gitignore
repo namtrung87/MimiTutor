@@ -6,7 +6,6 @@ __pycache__/
 *.db
 *.log
 *.txt
-!requirements.txt
 dist/
 build/
 .DS_Store
