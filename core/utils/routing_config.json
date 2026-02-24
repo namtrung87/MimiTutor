@@ -1,0 +1,112 @@
+{
+    "complexity_levels": {
+        "L1": {
+            "name": "Low",
+            "default_model": "models/gemini-3-flash-preview",
+            "provider": "gemini",
+            "max_tokens": 2000,
+            "default_thinking_depth": "minimal"
+        },
+        "L2": {
+            "name": "Medium",
+            "default_model": "models/gemini-3-flash-preview",
+            "provider": "gemini",
+            "max_tokens": 8000,
+            "default_thinking_depth": "balanced"
+        },
+        "L3": {
+            "name": "High",
+            "default_model": "models/gemini-3-pro-preview",
+            "provider": "gemini",
+            "max_tokens": 128000,
+            "default_thinking_depth": "comprehensive"
+        }
+    },
+    "domains": {
+        "cos": {
+            "keywords": [
+                "schedule",
+                "calendar",
+                "meeting",
+                "task",
+                "ops",
+                "chief of staff",
+                "lịch",
+                "lịch trình",
+                "hẹn"
+            ],
+            "preferred_provider": "gemini",
+            "model": "models/gemini-3-pro-preview",
+            "fallback_provider": "groq",
+            "fallback_model": "llama-3.3-70b-versatile"
+        },
+        "tech": {
+            "keywords": [
+                "python",
+                "javascript",
+                "code",
+                "debug",
+                "refactor",
+                "algorithm",
+                "api",
+                "react",
+                "dev",
+                "lập trình",
+                "mã nguồn"
+            ],
+            "preferred_provider": "gemini",
+            "model": "models/gemini-3-pro-preview",
+            "fallback_provider": "groq",
+            "fallback_model": "llama-3.3-70b-versatile"
+        },
+        "research": {
+            "keywords": [
+                "search",
+                "find",
+                "latest",
+                "news",
+                "trend",
+                "paper",
+                "scientific",
+                "study",
+                "survey",
+                "phd",
+                "tìm kiếm",
+                "nghiên cứu"
+            ],
+            "preferred_provider": "gemini",
+            "model": "models/gemini-3-pro-preview",
+            "fallback_provider": "groq",
+            "fallback_model": "llama-3.3-70b-versatile"
+        },
+        "advisor": {
+            "keywords": [
+                "strategy",
+                "business",
+                "consulting",
+                "plan",
+                "analysis",
+                "market"
+            ],
+            "preferred_provider": "gemini",
+            "model": "models/gemini-3-pro-preview",
+            "fallback_provider": "groq",
+            "fallback_model": "llama-3.3-70b-versatile"
+        },
+        "mimi": {
+            "keywords": [
+                "tutor",
+                "teach",
+                "lesson",
+                "student",
+                "learn",
+                "socratic"
+            ],
+            "preferred_provider": "gemini",
+            "model": "models/gemini-3-pro-preview",
+            "fallback_provider": "groq",
+            "fallback_model": "llama-3.3-70b-versatile"
+        }
+    },
+    "default_domain": "general"
+}

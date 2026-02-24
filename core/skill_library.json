@@ -1,0 +1,11 @@
+[
+    {
+        "title": "Framer Motion Animation Logic",
+        "description": "Cách sử dụng AnimatePresence và motion.div để tạo hiệu ứng chuyển cảnh mượt mà trong React.",
+        "logic_summary": "1. Import motion từ framer-motion. 2. Bọc component trong AnimatePresence. 3. Sử dụng initial, animate, exit props.",
+        "dependencies": [
+            "framer-motion"
+        ],
+        "source_file": "05_Gamification_Projects/mom-game/src/components/Level1.jsx"
+    }
+]

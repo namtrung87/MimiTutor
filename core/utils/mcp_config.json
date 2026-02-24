@@ -1,0 +1,39 @@
+{
+    "servers": {
+        "everything": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-everything"
+            ],
+            "description": "Standard test server with multiple tools"
+        },
+        "github": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-github"
+            ],
+            "description": "GitHub management tools",
+            "env_required": [
+                "GITHUB_PERSONAL_ACCESS_TOKEN"
+            ]
+        },
+        "filesystem": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                "e:/Drive/Antigravitiy/Orchesta assistant"
+            ],
+            "description": "Local file system operations"
+        },
+        "project": {
+            "command": "python",
+            "args": [
+                "core/utils/project_mcp_server.py"
+            ],
+            "description": "Internal project tools (Memory, Priority, Health)"
+        }
+    }
+}

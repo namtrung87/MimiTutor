@@ -1,0 +1,61 @@
+{
+    "user": {
+        "name": "Nguyen Nam Trung",
+        "qualifications": [
+            "FCCA",
+            "MBA",
+            "ACMA",
+            "CGMA"
+        ],
+        "profession": "Finance & Risk Professional",
+        "skills": [
+            "Internal Audit",
+            "Forensic Accounting",
+            "Risk Management",
+            "Python",
+            "Data Analytics"
+        ],
+        "background": "Experience at Vingroup, PwC, EY, Megram. Expertise in business process transformation and internal controls."
+    },
+    "preferences": {
+        "language": "Vietnamese (primary), English (professional)",
+        "tone": "Professional, analytical, yet passionate and energetic",
+        "formatting_style": "Structured markdown, clear hierarchies, no fluff",
+        "ai_directive": "Act as an Elite Assistant (Orchestrator). Prioritize data-driven insights and logical rigor."
+    },
+    "current_active_projects": [
+        {
+            "id": "research_phd",
+            "title": "Ph.D Research: MCDM and Gamification in Accounting",
+            "focus": [
+                "Fuzzy AHP",
+                "TOPSIS",
+                "Logistic Regression - WOE IV",
+                "Gamification impact on accounting certifications"
+            ],
+            "status": "In Progress (Chapter 3/4 content extraction)"
+        },
+        {
+            "id": "orchestra_system",
+            "title": "Orchestra AI Agent Development",
+            "focus": [
+                "LangGraph implementation",
+                "Key rotation and health management",
+                "Multi-agent specialized routing"
+            ],
+            "status": "Currently optimizing state management and error resilience"
+        },
+        {
+            "id": "personal_dev",
+            "title": "Heritage Scholar & Personal Learning",
+            "focus": [
+                "Philosophy",
+                "Leadership",
+                "Wellness"
+            ],
+            "status": "Active"
+        }
+    ],
+    "last_interaction": "2026-02-15",
+    "notes": "User values efficiency and high-quality outputs. Errors in API keys should be reported immediately and handled via rotation."
+}
