@@ -6,8 +6,8 @@ import remarkGfm from 'remark-gfm';
 import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
 
-// Use VITE_API_URL from environment variables if available, otherwise fallback to '/api' (for local Vite proxy)
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
+console.log('Mimi API Base:', API_BASE);
 
 // Đã gỡ bỏ Smart Chips theo yêu cầu
 
@@ -181,11 +181,19 @@ const MimiChat = () => {
             setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
             checkAndTriggerConfetti(botResponse);
         } catch (err) {
-            console.error("API Error:", err);
+            console.error("API Error Detailed:", err);
             const isNetlify = window.location.hostname.includes('netlify');
-            const errMsg = isNetlify
-                ? 'Lỗi kết nối: Vì giới hạn bảo mật, bản web trên Netlify không thể gọi được AI Backend đang chạy trên máy tính của anh (localhost:8000). Anh vui lòng truy cập http://localhost:3000 để sử dụng nhé!'
-                : 'Ối, kết nối với "não" của chị bị gián đoạn. Chị em mình thử lại nhé!';
+
+            let errMsg = 'Ối, kết nối với "não" của chị bị gián đoạn. Chị em mình thử lại nhé!';
+
+            if (isNetlify) {
+                if (API_BASE === '/api' || API_BASE.includes('localhost')) {
+                    errMsg = `Lỗi kết nối: App đang gọi địa chỉ "${API_BASE}". Vì giới hạn bảo mật, bản web trên Netlify không thể gọi được AI Backend chạy trên localhost. Anh hãy kiểm tra biến VITE_API_URL trong Netlify nhé!`;
+                } else {
+                    errMsg = `Lỗi kết nối: App không thể gọi tới "${API_BASE}". Anh kiểm tra xem Backend trên Render có đang bị "ngủ" (Free tier) hoặc có lỗi gì không nhé!`;
+                }
+            }
+
             setMessages(prev => [...prev, { role: 'bot', content: errMsg }]);
         } finally {
             setLoading(false);
