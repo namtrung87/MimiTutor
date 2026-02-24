@@ -8,9 +8,12 @@ import io
 
 # Add current and parent directory to sys.path for robust imports in Linux/Render
 current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.abspath(os.path.join(current_dir, "../"))
-if root_dir not in sys.path:
-    sys.path.append(root_dir)
+root_dir = os.path.abspath(os.path.join(current_dir, "../")) # 05_Mimi_HomeTutor
+true_root = os.path.abspath(os.path.join(root_dir, "../"))    # Project Root
+
+for path in [root_dir, true_root]:
+    if path not in sys.path:
+        sys.path.append(path)
 
 # Ensure UTF-8 for logs
 if sys.platform == "win32":
