@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, User, Mic, Image as ImageIcon, X, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
+import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
@@ -9,11 +9,11 @@ import { useWindowSize } from 'react-use';
 const API_BASE = '/api';
 
 const SMART_CHIPS = [
-    "🌌 Kể chị nghe về Hố đen vũ trụ đi!",
-    "🧬 Tại sao máu lại có màu đỏ vậy chị?",
-    "📚 Làm sao để tính diện tích hình tròn dễ nhớ nhất?",
-    "💡 Trí tuệ nhân tạo (AI) học như thế nào?",
-    "🦊 Chị kể cho em một câu chuyện cổ tích nha!"
+    "🚀 Lực hấp dẫn hoạt động như thế nào hả chị?",
+    "🚲 Tại sao phanh xe đạp lại tạo ra lực ma sát?",
+    "🫁 Phổi giúp chúng ta thở như thế nào ạ?",
+    "🩸 Máu chảy trong cơ thể mình ra sao chị nhỉ?",
+    "🍃 Tại sao thực vật lại quan trọng trong chuỗi thức ăn?"
 ];
 
 const POSITIVE_KEYWORDS = ["giỏi quá", "xuất sắc", "đúng rồi", "chính xác", "tuyệt vời", "rất tốt", "hô hô", "chúc mừng"];
@@ -105,11 +105,26 @@ const MimiChat = () => {
             return;
         }
         window.speechSynthesis.cancel();
+
         const utterance = new SpeechSynthesisUtterance(text);
+
+        // Find best Vietnamese voice
+        const voices = window.speechSynthesis.getVoices();
+        const viVoice = voices.find(v => v.lang === 'vi-VN' && v.name.includes('Google')) ||
+            voices.find(v => v.lang === 'vi-VN') ||
+            voices.find(v => v.lang.startsWith('vi'));
+
+        if (viVoice) {
+            utterance.voice = viVoice;
+        }
+
         utterance.lang = 'vi-VN';
-        utterance.rate = 1.0;
-        utterance.pitch = 1.1; // slightly higher pitch for friendly tone
+        utterance.rate = 0.9; // Slightly slower for better clarity
+        utterance.pitch = 1.0;
+
         utterance.onend = () => setSpeakingIndex(null);
+        utterance.onerror = () => setSpeakingIndex(null);
+
         setSpeakingIndex(index);
         window.speechSynthesis.speak(utterance);
     };
@@ -197,9 +212,11 @@ const MimiChat = () => {
                                     <img src={msg.image} alt="Upload" style={{ maxWidth: '100%', borderRadius: '0.5rem', marginBottom: '0.5rem' }} />
                                 )}
                                 {msg.role === 'bot' ? (
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]} className="markdown-content">
-                                        {msg.content}
-                                    </ReactMarkdown>
+                                    <div className="markdown-content">
+                                        <Markdown remarkPlugins={[remarkGfm]}>
+                                            {msg.content}
+                                        </Markdown>
+                                    </div>
                                 ) : (
                                     <div>{msg.content}</div>
                                 )}
