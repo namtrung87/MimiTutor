@@ -1,7 +1,7 @@
 [build]
   base = "mimi-app"
-  publish = "dist"
-  command = "npm install && npm run build"
+  publish = "offline"
+  command = "mkdir -p offline && echo \"<h1>He thong dang tam dung (Offline Mode)</h1><p>Website da duoc dong theo yeu cau.</p>\" > offline/index.html"
 
 [[redirects]]
   from = "/*"
