@@ -7,9 +7,20 @@ from core.mock_llm import MockLLM
 
 class KnowledgeAgent:
     def __init__(self):
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        # Anchor to the actual project root (Orchesta assistant)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # For Orchesta assistant/05_Mimi_HomeTutor/core/agents/policy_agent.py, we need 3 levels up to hit Orchesta assistant
+        project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
+        
+        # Mimi learning is a sibling to the Orchesta assistant folder
+        self.mimi_learning_path = os.path.abspath(os.path.join(project_root, "../Mimi learning"))
+        
+        print(f"  [KnowledgeAgent] Init - current_dir: {current_dir}")
+        print(f"  [KnowledgeAgent] Init - project_root: {project_root}")
+        print(f"  [KnowledgeAgent] Init - mimi_learning_path: {self.mimi_learning_path} (Exists: {os.path.exists(self.mimi_learning_path)})")
+        
         self.modules = [
-            os.path.join(root_dir, m) for m in [
+            os.path.join(project_root, m) for m in [
                 "01_Academic_Success",
                 "02_Research_Scholarship",
                 "03_Strategic_Advisory",
@@ -24,8 +35,6 @@ class KnowledgeAgent:
                 "12_Executive_Ops"
             ]
         ]
-        # Special handling for Mimi learning which is outside the assistant folder
-        self.mimi_learning_path = os.path.abspath(os.path.join(root_dir, "../Mimi learning"))
         self.target_science_pdf = "pdfcoffee.com_mary-jones-cambridge-lower-secondary-science-7-learnerx27s-book-second-edition-pdf-free.pdf"
         self.modules.append(self.mimi_learning_path)
         self.loaders = [DocumentLoader(knowledge_base_path=m) for m in self.modules]
@@ -55,89 +64,63 @@ class KnowledgeAgent:
 
     def sync_mimi_learning(self):
         """
-        Ingests ONLY the specific Mimi Science textbook.
-        Supports both external paths and local 'materials' folder for cloud.
+        Ingests Mimi Science materials including PDFs and Markdown briefings.
+        Supports both external paths and local 'materials' folder.
         """
         path = self.mimi_learning_path
-        target_file = self.target_science_pdf
         
         # Cloud Check: More robust pathing
         if not os.path.exists(path):
             current_dir = os.path.dirname(os.path.abspath(__file__))
             backend_root = os.path.abspath(os.path.join(current_dir, "../../"))
-            
-            # Check for materials folder in the app root (backend_root)
             alt_path = os.path.join(backend_root, "materials")
             
             if os.path.exists(alt_path):
-                print(f"  [KnowledgeAgent] Using app-relative materials: {alt_path}")
                 path = alt_path
             else:
-                # Fallback: check project root if different
-                project_root_materials = "/opt/render/project/src/materials"
-                if os.path.exists(project_root_materials):
-                     print(f"  [KnowledgeAgent] Using Render-project materials: {project_root_materials}")
-                     path = project_root_materials
-                else:
-                    os.makedirs(alt_path, exist_ok=True)
-                    print(f"  [KnowledgeAgent] Materials folder created at {alt_path}. Please place PDFs there.")
-                    return 0
+                os.makedirs(alt_path, exist_ok=True)
+                return 0
 
         print(f"--- Đang đồng bộ tài liệu Science từ: {path} ---")
-        files_present = os.listdir(path)
-        print(f"  [KnowledgeAgent] Files in path: {files_present}")
         
         # 1. Clear existing Mimi entries from store
         if hasattr(self.store, 'skills'):
-            # Match actual keys which look like 'mimi_learning:...'
-            keys_to_delete = [k for k in self.store.skills.keys() if k.startswith("mimi_learning:")]
+            keys_to_delete = [k for k in self.store.skills.keys() if k.startswith("mimi_") or "science" in k]
             for k in keys_to_delete:
                 del self.store.skills[k]
-            print(f"  [KnowledgeAgent] Cleared {len(keys_to_delete)} existing Mimi entries.")
+            print(f"  [KnowledgeAgent] Cleared {len(keys_to_delete)} existing Science entries.")
 
         # 2. Load documents
         loader = DocumentLoader(knowledge_base_path=path)
         docs = loader.load_documents()
         
         count = 0
-        target_found = False
-        
-        # Priority 1: Look for exact target file
         for doc in docs:
-            if doc['filename'] == target_file:
-                doc_card = {
-                    "title": f"Mimi Science: {doc['filename']}",
-                    "description": "Cambridge Lower Secondary Science 7 Learner's Book.",
-                    "logic_summary": doc["content"],
-                    "dependencies": [],
-                    "source_file": doc["filename"]
-                }
-                self.store.add_skill(doc_card)
-                count += 1
-                target_found = True
-                break
-        
-        # Priority 2: If target not found, ingest ANY PDF in the materials folder
-        if not target_found:
-            pdf_docs = [d for d in docs if d['filename'].lower().endswith('.pdf')]
-            if pdf_docs:
-                print(f"  [KnowledgeAgent] Target PDF not found. Ingesting {len(pdf_docs)} alternative PDFs.")
-                for doc in pdf_docs:
-                    doc_card = {
-                        "title": f"Mimi Study Material: {doc['filename']}",
-                        "description": "Automatically indexed study material.",
-                        "logic_summary": doc["content"],
-                        "dependencies": [],
-                        "source_file": doc["filename"]
-                    }
-                    self.store.add_skill(doc_card)
-                    count += 1
-        
-        if count == 0:
-            print(f"  [WARNING] Target Science PDF not found: {target_file}")
-        else:
-            print(f"  [KnowledgeAgent] Successfully ingested Science material.")
+            # Skip files with empty content (common for image-only PDFs)
+            if not doc['content'] or len(doc['content'].strip()) < 10:
+                print(f"  [KnowledgeAgent] Skipping empty file: {doc['filename']}")
+                continue
+
+            # Identify if it's the primary Stage 7 textbook or a briefing
+            title = f"Mimi Science: {doc['filename']}"
+            desc = "Science Stage 7 Study Material."
             
+            if "Briefing" in doc['filename']:
+                desc = "Technical curriculum summary for a specific unit."
+            elif "Adventure" in doc['filename']:
+                desc = "Friendly, story-based explanation for Mimi."
+            
+            doc_card = {
+                "title": title,
+                "description": desc,
+                "logic_summary": doc["content"],
+                "dependencies": [],
+                "source_file": doc["filename"]
+            }
+            self.store.add_skill(doc_card)
+            count += 1
+        
+        print(f"  [KnowledgeAgent] Successfully ingested {count} Science materials.")
         return count
 
     def answer_question(self, question: str, role_category: str = "academic", memory: list = None, feedback: str = None) -> str:
@@ -162,8 +145,8 @@ class KnowledgeAgent:
         
         system_prompt = ""
         filename = prompt_map.get(role_category, "academic_student_success")
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        prompt_path = os.path.join(root_dir, "prompts", f"{filename}.md")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        prompt_path = os.path.join(current_dir, "../../prompts", f"{filename}.md")
         try:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 system_prompt = f.read()

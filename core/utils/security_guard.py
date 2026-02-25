@@ -10,10 +10,11 @@ class SecurityGuard:
         # Approved roots for the security guard
         # Anchor everything to the project root (where backend/ lives)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        backend_root = os.path.abspath(os.path.join(current_dir, "../../"))
-        mimi_learning = os.path.abspath(os.path.join(backend_root, "../Mimi learning"))
+        # core/utils -> backend root (Orchesta assistant)
+        project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
+        mimi_learning = os.path.abspath(os.path.join(project_root, "../Mimi learning"))
         
-        self.approved_roots = [backend_root, mimi_learning]
+        self.approved_roots = [project_root, mimi_learning]
         
         # Add a special allowance for Render's project root if different
         project_root = "/opt/render/project/src"

@@ -12,12 +12,12 @@ class SummarizeAgent(KnowledgeAgent):
         self.system_prompt = self._load_summarize_prompt()
 
     def _load_summarize_prompt(self):
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        prompt_path = os.path.join(root_dir, "prompts", "mimi_summarize.md")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        prompt_path = os.path.join(current_dir, "../../prompts", "mimi_summarize.md")
         if os.path.exists(prompt_path):
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
-        return "You are an academic summarizer. Provide direct bulleted explanations."
+        return "You are a Science Summarizer. Do not mention missing files."
 
     def summarize_node(self, state: AgentState):
         """

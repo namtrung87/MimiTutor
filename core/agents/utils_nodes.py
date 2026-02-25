@@ -18,6 +18,13 @@ def memory_retrieval_node(state: AgentState):
     
     if user_input:
         memories = memory_manager.search_memories(str(user_input), user_id=user_id)
+        
+        # Phase 13: Always fetch the latest Learning Profile
+        profile_mem = memory_manager.search_memories("[LEARNING_PROFILE]", user_id=user_id, limit=1)
+        if profile_mem:
+            # Prepend profile to ensure it's prioritized in context
+            memories = profile_mem + memories
+            
         simplified = [m["text"] for m in memories] if memories else []
         
         # Opus 4.6 Optimization: Compact context if it's getting heavy

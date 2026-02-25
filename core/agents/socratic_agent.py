@@ -12,12 +12,12 @@ class SocraticAgent(KnowledgeAgent):
         self.system_prompt = self._load_socratic_prompt()
 
     def _load_socratic_prompt(self):
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        prompt_path = os.path.join(root_dir, "prompts", "mimi_socratic.md")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        prompt_path = os.path.join(current_dir, "../../prompts", "mimi_socratic.md")
         if os.path.exists(prompt_path):
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
-        return "You are a Socratic tutor. Only ask questions to guide the student."
+        return "You are a Socratic Science Tutor. Do not mention missing files."
 
     def socratic_node(self, state: AgentState):
         """
@@ -50,9 +50,20 @@ class SocraticAgent(KnowledgeAgent):
         critic_feedback = state.get("critic_feedback")
         feedback_section = f"\n--- CRITIC FEEDBACK (REVISE YOUR PREVIOUS RESPONSE) ---\n{critic_feedback}\n" if critic_feedback else ""
 
-        # Filter memory
+        # Filter memory and extract learning profile
         raw_memory = state.get('long_term_memory', [])
-        clean_memory = [m for m in raw_memory if "readiness" not in str(m).lower() and "tension" not in str(m).lower()] if isinstance(raw_memory, list) else str(raw_memory)
+        clean_memory = []
+        learning_profile = "None."
+        
+        if isinstance(raw_memory, list):
+            for m in raw_memory:
+                if "[LEARNING_PROFILE]" in str(m):
+                    learning_profile = str(m)
+                elif "readiness" not in str(m).lower() and "tension" not in str(m).lower():
+                    clean_memory.append(m)
+        else:
+            clean_memory = str(raw_memory)
+            
         memory_str = "\n".join([f"- {m}" for m in clean_memory]) if isinstance(clean_memory, list) else clean_memory
         
         # Filter history
@@ -61,20 +72,29 @@ class SocraticAgent(KnowledgeAgent):
         full_prompt = f"""
         {self.system_prompt}
         
-        --- TASK: EXERCISE / PROBLEM SOLVING ---
+        --- TASK: SCIENCE TUTOR (STAGE 7) ---
         Use THE SOCRATIC METHOD. Break down the problem, provide hints. DO NOT give the answer.
         
-        CRITICAL RULE: YOU ARE A TUTOR FOR A CHILD (MIMI). DO NOT offer psychological advice, stress management techniques, or discuss biometric data. STRICTLY FOCUS ON THE ACADEMIC SUBJECT.
+        CRITICAL RULE: STICK EXCLUSIVELY TO THE CAMBRIDGE LOWER SECONDARY SCIENCE STAGE 7 CURRICULUM.
+        Do not confuse with other levels. Use the provided context from the knowledge base as your primary source of truth.
         
         {feedback_section}
+        
+        --- STUDENT LEARNING PROFILE ---
+        {learning_profile}
+        
+        PEDAGOGICAL INSTRUCTION:
+        1. Check "Mastered Topics" and use them as analogies to explain new concepts.
+        2. Check "Struggled Topics" and provide extra scaffolding/patience when these arise.
+        3. If "Poor Responses" are noted, simplify your language and be more encouraging.
         
         --- TEACHER FEEDBACK ON STUDENT ---
         {teacher_feedback}
         
-        --- STUDY MATERIAL CONTEXT ---
-        {context_str if context_str else "No specific study material found in database."}
+        --- STUDY MATERIAL CONTEXT (CAMBRIDGE SCIENCE 7) ---
+        {context_str if context_str else "Sử dụng kiến thức chuẩn về chương trình Cambridge Science Stage 7 để giải thích."}
         
-        --- LONG-TERM MEMORY (USER HISTORY) ---
+        --- RELEVANT PAST CONTEXT ---
         {memory_str if memory_str else 'None.'}
 
         --- CHAT HISTORY ---

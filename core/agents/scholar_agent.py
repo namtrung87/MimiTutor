@@ -12,12 +12,12 @@ class ScholarAgent(KnowledgeAgent):
         self.system_prompt = self._load_scholar_prompt()
 
     def _load_scholar_prompt(self):
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        prompt_path = os.path.join(root_dir, "prompts", "scholar_system.md")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        prompt_path = os.path.join(current_dir, "../../prompts", "scholar_system.md")
         if os.path.exists(prompt_path):
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
-        return "You are the AI Era Navigator, a specialized pedagogical agent."
+        return "You are a Science Tutor. Do not mention missing files."
 
     def process_request(self, state: AgentState) -> dict:
         """
@@ -72,13 +72,7 @@ class ScholarAgent(KnowledgeAgent):
     def _get_rule_based_response(self, user_input, context):
         """Offline fallback that provides direct info if available."""
         if not context:
-            error_details = ""
-            if not os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
-                error_details = " (Lỗi: Thiếu API Key trên Render)"
-            elif not self.store.skills:
-                 error_details = " (Lỗi: Chưa nạp được sách Science)"
-                 
-            return f"Chào em! Anh/Chị đang gặp chút khó khăn khi kết nối với 'bộ não' thông minh{error_details}, nhưng anh/chị vẫn ở đây hỗ trợ em nè. Em muốn hỏi về Science Unit 8 hay chủ đề nào trong sách Khoa học lớp 7 nhỉ?"
+            return f"Chào em! Anh/Chị đang sắp xếp lại tài liệu học tập một chút. Em muốn hỏi về Science Unit 8 hay chủ đề nào trong sách Khoa học lớp 7 nhỉ?"
         
         # Heuristic: try to find a relevant sentence
         input_lower = user_input.lower()
