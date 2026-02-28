@@ -121,9 +121,10 @@ class TrendScoutAgent:
             url = src.get("url", "")
             name = src.get("name", "Unknown")
             domain_label = src.get("domain_label", "")
-            print(f"    → [{domain_label}] {name}: {url}")
+            platform = src.get("platform", "")
+            print(f"    → [{domain_label}] {name}: {url} (Platform: {platform})")
 
-            content = self._fetch_source(name, url)
+            content = self._fetch_source(name, url, platform)
             if content:
                 header = f"\n{'='*60}\nSOURCE: {name} ({domain_label})\nURL: {url}\n{'='*60}\n"
                 raw_chunks.append(header + content[:3000])  # Cap per source
@@ -132,10 +133,10 @@ class TrendScoutAgent:
         print(f"  [{self.role}] Collected {len(combined)} chars from {len(raw_chunks)} sources.")
         return combined
 
-    def _fetch_source(self, name: str, url: str) -> str:
+    def _fetch_source(self, name: str, url: str, platform: str = "") -> str:
         """Fetch content from a single source URL."""
         # Strategy 1: Use Firecrawl for clean Markdown extraction
-        if _firecrawl_available:
+        if _firecrawl_available and platform != "search":
             try:
                 crawler = FirecrawlAgent()
                 if crawler.app:
@@ -145,16 +146,34 @@ class TrendScoutAgent:
             except Exception as e:
                 print(f"    [Firecrawl fallback] {name}: {e}")
 
-        # Strategy 2: LLM-based web summary (zero-infrastructure fallback)
+        # Strategy 2: Google News RSS fallback (Real-time data)
         try:
-            prompt = (
-                f"Search the web for the latest updates (last 48 hours) from '{name}' ({url}). "
-                f"Summarize the top 3 most important recent posts, articles, or announcements. "
-                f"Include dates and key takeaways. If no recent content, say 'No recent updates.'."
-            )
-            return llm.query(prompt, complexity="L2", domain="research")
+            import urllib.request
+            import urllib.parse
+            import xml.etree.ElementTree as ET
+            
+            # Use name as query to find relevant news
+            query = urllib.parse.quote(f"{name} when:7d")
+            url_rss = f"https://news.google.com/rss/search?q={query}"
+            
+            req = urllib.request.Request(url_rss, headers={'User-Agent': 'Mozilla/5.0'})
+            html = urllib.request.urlopen(req, timeout=10).read()
+            root = ET.fromstring(html)
+            
+            items = root.findall('.//item')[:5]
+            if not items:
+                return "No recent updates found on Google News."
+                
+            snippets = []
+            for item in items:
+                title = item.find('title').text if item.find('title') is not None else 'No title'
+                link = item.find('link').text if item.find('link') is not None else 'No link'
+                pubDate = item.find('pubDate').text if item.find('pubDate') is not None else 'Unknown date'
+                snippets.append(f"- {title} ({pubDate})\n  Link: {link}")
+                
+            return "Recent news:\n" + "\n".join(snippets)
         except Exception as e:
-            print(f"    [LLM fallback failed] {name}: {e}")
+            print(f"    [RSS fallback failed] {name}: {e}")
             return ""
 
     # ── Briefing Generation ────────────────────────────────────────
@@ -206,7 +225,7 @@ class TrendScoutAgent:
             """
 
         print(f"  [{self.role}] Generating daily briefing for {today}...")
-        briefing = llm.query(prompt, complexity="L3", domain="research")
+        briefing = llm.query(prompt, complexity="L2", domain="research")
 
         # Save briefing to disk
         self._save_briefing(briefing, today)
@@ -236,20 +255,15 @@ class TrendScoutAgent:
         label = domains.get(domain_key, {}).get("label", domain_key)
         today = datetime.now().strftime("%Y-%m-%d")
 
-        prompt = f"""
-        You are TrendScout. Create a focused intelligence report in Vietnamese
-        for the domain: **{label}**.
-        
-        Date: {today}
-        Raw data:
-        {raw}
-        
-        Format:
-        # 📊 {label} — Báo cáo {today}
-        ## Xu hướng chính (3-5 items)
-        ## Mindset Changer (1-2 items)
-        ## Đề xuất hành động
-        """
+        # Load domain template
+        template_path = os.path.join(BASE_DIR, "prompts", "trendscout_domain_report.md")
+        if os.path.exists(template_path):
+            with open(template_path, 'r', encoding='utf-8') as f:
+                prompt_template = f.read()
+        else:
+            prompt_template = "You are TrendScout. Create a focused report for {label}."
+
+        prompt = prompt_template.format(label=label, today=today, raw=raw)
 
         return llm.query(prompt, complexity="L2", domain="research")
 

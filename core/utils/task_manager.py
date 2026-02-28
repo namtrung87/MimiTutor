@@ -1,16 +1,18 @@
-import sqlite3
 import os
 import re
 from datetime import datetime, timedelta
+from core.utils.db_utils import AsyncSQLite
 
 class TaskManager:
     """Manages simple to-do tasks for the Telegram bot user."""
     
     def __init__(self, db_path="tasks.db"):
         self.db_path = db_path
+        self.db = AsyncSQLite(db_path)
         self._init_db()
         
     def _init_db(self):
+        import sqlite3
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -51,73 +53,72 @@ class TaskManager:
             return clean_desc, target_time.strftime('%Y-%m-%d %H:%M:%S')
         return description, None
 
-    def add_task(self, user_id: str, description: str) -> int:
+    async def add_task(self, user_id: str, description: str) -> int:
         clean_desc, scheduled_time = self._parse_time_from_desc(description)
         
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO tasks (user_id, description, status, scheduled_time, is_notified)
-                VALUES (?, ?, 'pending', ?, 0)
-            ''', (user_id, clean_desc, scheduled_time))
-            conn.commit()
-            return cursor.lastrowid
+        query = '''
+            INSERT INTO tasks (user_id, description, status, scheduled_time, is_notified)
+            VALUES (?, ?, 'pending', ?, 0)
+        '''
+        params = (user_id, clean_desc, scheduled_time)
+        return await self.db.execute(query, params)
 
-    def get_pending_tasks(self, user_id: str):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, description, created_at, scheduled_time
-                FROM tasks 
-                WHERE user_id = ? AND status = 'pending'
-                ORDER BY CASE WHEN scheduled_time IS NULL THEN 1 ELSE 0 END, scheduled_time ASC, created_at ASC
-            ''', (user_id,))
-            return [{"id": row[0], "desc": row[1], "created_at": row[2], "scheduled_time": row[3]} for row in cursor.fetchall()]
+    async def get_pending_tasks(self, user_id: str):
+        query = '''
+            SELECT id, description, created_at, scheduled_time
+            FROM tasks 
+            WHERE user_id = ? AND status = 'pending'
+            ORDER BY CASE WHEN scheduled_time IS NULL THEN 1 ELSE 0 END, scheduled_time ASC, created_at ASC
+        '''
+        rows = await self.db.fetch_all(query, (user_id,))
+        return [{"id": row["id"], "desc": row["description"], "created_at": row["created_at"], "scheduled_time": row["scheduled_time"]} for row in rows]
 
-    def get_completed_tasks_today(self, user_id: str):
+    async def get_completed_tasks_today(self, user_id: str):
         today = datetime.now().strftime('%Y-%m-%d')
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, description, completed_at 
-                FROM tasks 
-                WHERE user_id = ? AND status = 'completed' AND date(completed_at) = ?
-                ORDER BY completed_at DESC
-            ''', (user_id, today))
-            return [{"id": row[0], "desc": row[1], "completed_at": row[2]} for row in cursor.fetchall()]
+        query = '''
+            SELECT id, description, completed_at 
+            FROM tasks 
+            WHERE user_id = ? AND status = 'completed' AND date(completed_at) = ?
+            ORDER BY completed_at DESC
+        '''
+        rows = await self.db.fetch_all(query, (user_id, today))
+        return [{"id": row["id"], "desc": row["description"], "completed_at": row["completed_at"]} for row in rows]
 
-    def complete_task(self, user_id: str, task_id: int) -> bool:
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
+    async def complete_task(self, user_id: str, task_id: int) -> bool:
+        # Note: rowcount isn't returned by AsyncSQLite.execute currently
+        # I'll update AsyncSQLite to return it or use fetch_one/run_in_transaction
+        async def _complete(conn):
+            cursor = conn.execute('''
                 UPDATE tasks 
                 SET status = 'completed', completed_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND user_id = ? AND status = 'pending'
             ''', (task_id, user_id))
-            conn.commit()
             return cursor.rowcount > 0
+        
+        return await self.db.run_in_transaction(_complete)
 
-    def get_due_tasks(self, user_id: str):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, description, scheduled_time 
-                FROM tasks 
-                WHERE user_id = ? AND status = 'pending' AND is_notified = 0
-                AND scheduled_time IS NOT NULL AND scheduled_time <= CURRENT_TIMESTAMP
-            ''', (user_id,))
-            tasks = [{"id": row[0], "desc": row[1], "scheduled_time": row[2]} for row in cursor.fetchall()]
-            
-            # Mark as notified right away to prevent duplicate triggers
-            if tasks:
-                task_ids = [str(t["id"]) for t in tasks]
+    async def get_due_tasks(self, user_id: str):
+        query = '''
+            SELECT id, description, scheduled_time 
+            FROM tasks 
+            WHERE user_id = ? AND status = 'pending' AND is_notified = 0
+            AND scheduled_time IS NOT NULL AND scheduled_time <= CURRENT_TIMESTAMP
+        '''
+        rows = await self.db.fetch_all(query, (user_id,))
+        tasks = [{"id": row["id"], "desc": row["description"], "scheduled_time": row["scheduled_time"]} for row in rows]
+        
+        # Mark as notified right away to prevent duplicate triggers
+        if tasks:
+            async def _mark_notified(conn):
+                task_ids = [t["id"] for t in tasks]
                 placeholders = ','.join('?' * len(task_ids))
-                cursor.execute(f'''
+                conn.execute(f'''
                     UPDATE tasks SET is_notified = 1 
                     WHERE id IN ({placeholders}) AND user_id = ?
                 ''', (*task_ids, user_id))
-                conn.commit()
             
-            return tasks
+            await self.db.run_in_transaction(_mark_notified)
+        
+        return tasks
 
 task_manager = TaskManager()

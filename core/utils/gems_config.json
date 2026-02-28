@@ -1,0 +1,52 @@
+{
+    "gems": {
+        "academic": {
+            "name": "Academic Success Assistant",
+            "role": "academic",
+            "system_prompt": "academic_success_assistant.md",
+            "model": "gemini-2.0-flash",
+            "grounding": "none",
+            "description": "Chuyên gia hỗ trợ học tập và quản lý lộ trình học cho Mimi."
+        },
+        "mimi": {
+            "name": "Mimi Socratic Tutor",
+            "role": "mimi",
+            "system_prompt": "mimi_socratic.md",
+            "model": "gemini-2.0-flash",
+            "grounding": "none",
+            "description": "Trợ giảng khoa học phong cách Socratic cho Mimi Stage 7."
+        },
+        "research": {
+            "name": "Drive Researcher",
+            "role": "research",
+            "system_prompt": "research_scholarship_lead.md",
+            "model": "gemini-2.0-flash",
+            "grounding": "google_search",
+            "description": "Nghiên cứu thông tin chuyên sâu tích hợp Google Search và Drive."
+        },
+        "tech": {
+            "name": "Creative Tech Architect",
+            "role": "tech",
+            "system_prompt": "creative_tech_skill_architect.md",
+            "model": "gemini-2.0-flash",
+            "grounding": "none",
+            "description": "Chuyên gia lập trình và thiết kế giải pháp kỹ thuật."
+        },
+        "cos": {
+            "name": "Executive Chief of Staff",
+            "role": "cos",
+            "system_prompt": "executive_chief_of_staff.md",
+            "model": "gemini-2.0-flash",
+            "grounding": "none",
+            "description": "Trợ lý điều hành cấp cao, quản lý lịch trình và công việc."
+        },
+        "advisor": {
+            "name": "Strategic Advisory Consultant",
+            "role": "advisor",
+            "system_prompt": "strategic_advisory_consultant.md",
+            "model": "gemini-2.0-pro-exp",
+            "grounding": "google_search",
+            "description": "Cố vấn chiến lược kinh doanh và phân tích thị trường."
+        }
+    }
+}

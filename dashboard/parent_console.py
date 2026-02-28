@@ -6,7 +6,8 @@ import sys
 import json
 
 # Add root to sys.path
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+# Since this is in 05_Mimi_HomeTutor/dashboard/
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
 sys.path.append(root_dir)
 
 from core.utils.priority_memory import priority_memory
@@ -26,6 +27,13 @@ def get_interactions():
     df = pd.read_sql_query("SELECT * FROM interactions ORDER BY timestamp DESC", conn)
     conn.close()
     return df
+
+def delete_interaction(interaction_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM interactions WHERE id = ?", (interaction_id,))
+    conn.commit()
+    conn.close()
 
 # Tabbed Layout
 tab1, tab2 = st.tabs(["📊 Activity Log", "🧠 Training & Priority Memory"])
@@ -49,18 +57,29 @@ with tab1:
                     st.write("**Mimi's Response:**")
                     st.success(row['agent_output'])
                 
-                # Edit & Train Button
+                # Action Buttons
                 st.write("---")
-                st.subheader("Edit & Train (Human-in-the-Loop)")
-                new_answer = st.text_area("Correct the answer or provide a 'Golden Response':", value=row['agent_output'], key=f"edit_{row['id']}")
-                if st.button("Save as Priority Memory", key=f"btn_{row['id']}"):
-                    priority_memory.add_golden_answer(
-                        question=row['user_input'],
-                        answer=new_answer,
-                        metadata={"origin_interaction_id": row['id'], "edited_by": "parent"}
-                    )
-                    st.balloons()
-                    st.success("Golden Answer saved! Mimi will now use this response for similar questions.")
+                col_train, col_delete = st.columns([3, 1])
+                
+                with col_train:
+                    st.subheader("Edit & Train (Human-in-the-Loop)")
+                    new_answer = st.text_area("Correct the answer or provide a 'Golden Response':", value=row['agent_output'], key=f"edit_{row['id']}")
+                    if st.button("Save as Priority Memory", key=f"btn_{row['id']}"):
+                        priority_memory.add_golden_answer(
+                            question=row['user_input'],
+                            answer=new_answer,
+                            metadata={"origin_interaction_id": row['id'], "edited_by": "parent"}
+                        )
+                        st.balloons()
+                        st.success("Golden Answer saved! Mimi will now use this response for similar questions.")
+                
+                with col_delete:
+                    st.subheader("Manage")
+                    st.write("") # Spacer
+                    if st.button("🗑️ Delete History", key=f"del_{row['id']}", type="secondary"):
+                        delete_interaction(row['id'])
+                        st.warning(f"Interaction {row['id']} deleted.")
+                        st.rerun()
 
 with tab2:
     st.header("Priority Memory (Golden Answers)")

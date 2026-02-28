@@ -2,22 +2,22 @@
     "complexity_levels": {
         "L1": {
             "name": "Low",
-            "default_model": "models/gemini-3-flash-preview",
-            "provider": "gemini",
-            "max_tokens": 2000,
+            "default_model": "llama-4-scout",
+            "provider": "groq",
+            "max_tokens": 4000,
             "default_thinking_depth": "minimal"
         },
         "L2": {
             "name": "Medium",
-            "default_model": "models/gemini-3-flash-preview",
+            "default_model": "gemini-2.5-flash",
             "provider": "gemini",
             "max_tokens": 8000,
             "default_thinking_depth": "balanced"
         },
         "L3": {
             "name": "High",
-            "default_model": "models/gemini-3-pro-preview",
-            "provider": "gemini",
+            "default_model": "qwen-3-235b-a22b-instruct",
+            "provider": "cerebras",
             "max_tokens": 128000,
             "default_thinking_depth": "comprehensive"
         }
@@ -36,9 +36,9 @@
                 "hẹn"
             ],
             "preferred_provider": "gemini",
-            "model": "models/gemini-3-pro-preview",
+            "model": "gemini-2.5-flash",
             "fallback_provider": "groq",
-            "fallback_model": "llama-3.3-70b-versatile"
+            "fallback_model": "llama-4-scout"
         },
         "tech": {
             "keywords": [
@@ -54,10 +54,10 @@
                 "lập trình",
                 "mã nguồn"
             ],
-            "preferred_provider": "gemini",
-            "model": "models/gemini-3-pro-preview",
-            "fallback_provider": "groq",
-            "fallback_model": "llama-3.3-70b-versatile"
+            "preferred_provider": "groq",
+            "model": "llama-4-maverick",
+            "fallback_provider": "gemini",
+            "fallback_model": "gemini-2.5-flash"
         },
         "research": {
             "keywords": [
@@ -75,9 +75,10 @@
                 "nghiên cứu"
             ],
             "preferred_provider": "gemini",
-            "model": "models/gemini-3-pro-preview",
-            "fallback_provider": "groq",
-            "fallback_model": "llama-3.3-70b-versatile"
+            "model": "gemini-2.5-flash",
+            "google_search_grounding": true,
+            "fallback_provider": "openrouter",
+            "fallback_model": "deepseek-r1"
         },
         "advisor": {
             "keywords": [
@@ -88,10 +89,10 @@
                 "analysis",
                 "market"
             ],
-            "preferred_provider": "gemini",
-            "model": "models/gemini-3-pro-preview",
-            "fallback_provider": "groq",
-            "fallback_model": "llama-3.3-70b-versatile"
+            "preferred_provider": "cerebras",
+            "model": "qwen-3-235b-a22b-instruct",
+            "fallback_provider": "gemini",
+            "fallback_model": "gemini-2.5-flash"
         },
         "mimi": {
             "keywords": [
@@ -103,7 +104,21 @@
                 "socratic"
             ],
             "preferred_provider": "gemini",
-            "model": "models/gemini-3-pro-preview",
+            "model": "gemini-2.0-flash",
+            "fallback_provider": "groq",
+            "fallback_model": "llama-3.3-70b-versatile"
+        },
+        "speed": {
+            "keywords": [
+                "fast",
+                "quick",
+                "brief",
+                "short",
+                "nhanh",
+                "gọn"
+            ],
+            "preferred_provider": "cerebras",
+            "model": "llama3.3-70b",
             "fallback_provider": "groq",
             "fallback_model": "llama-3.3-70b-versatile"
         }

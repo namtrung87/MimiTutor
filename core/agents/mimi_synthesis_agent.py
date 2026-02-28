@@ -14,7 +14,7 @@ class MimiSynthesisAgent:
     def __init__(self):
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
         self.db_path = os.path.join(root_dir, "data", "mimi_interactions.db")
-        self.llm = LLMManager()
+        self.llm = LLMManager(app_name="mimi_hometutor")
 
     def get_recent_interactions(self, hours: int = 24) -> List[Dict[str, Any]]:
         """Fetch interactions from the last N hours."""

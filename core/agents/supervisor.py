@@ -2,86 +2,93 @@ import os
 import json
 import sys
 import io
+import asyncio
+from typing import Literal, Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field
+from core.state import AgentState
+from langgraph.graph import StateGraph, END
+from core.utils.input_sanitizer import sanitize_user_input
+from core.utils.bot_logger import get_logger
+from core.agents.planner_agent import PlannerAgent
+from core.agents.reflection_agent import ReflectionAgent
+from core.utils.memory_manager import memory_manager
+from core.agents.intelligence_agent import intelligence_node
+from core.agents.multimodal_agent import multimodal_node
+from core.agents.iching_agent import iching_agent_node
+from core.agents.council_agent import council_agent_node
+from core.agents.specialized_knowledge_agent import specialized_knowledge_node
+
+logger = get_logger("supervisor")
 
 # Force UTF-8 encoding for Windows console
 if sys.platform == "win32":
-    # Check if already reconfigured to avoid recursion or errors
     if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
         try:
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-        except:
+        except Exception:
             pass
 
-from typing import Literal
-from core.state import AgentState
-from langgraph.graph import StateGraph, END
-from core.agents.universal_agent import universal_agent_node
-from core.agents.socratic_agent import socratic_agent_node
-from core.agents.reporting_agent import reporting_agent_node
-from core.graph import load_file_node, extract_skill_node, save_skill_node 
-from core.utils.z_research import ZResearch
-from core.utils.observability import obs
-from core.agents.firecrawl_agent import firecrawl_node
-from core.agents.executive_ops_agent import executive_ops_node
-from core.agents.coding_crew import developer_node, auditor_node, researcher_node, synthesis_node as tech_synthesis_node
-from core.agents.parallel_crew import researcher_perspective, critic_perspective, brainstormer_perspective, practical_perspective, analyst_perspective
-from core.agents.synthesizer import synthesis_node as general_synthesis_node
-from core.services.telegram_service import telegram_service
-from core.agents.mcp_agent import mcp_agent_node
-from core.agents.n8n_skill_agent import n8n_skill_node
-from core.utils.llm_manager import LLMManager
-from core.agents.ops_agent import ops_node
-from core.agents.wellness_agent import wellness_agent_node
-from core.agents.scheduler_agent import scheduler_node
-from core.agents.verifier_agent import verifier_node
-from core.agents.scholar_agent import scholar_agent_node
-from core.agents.eq_agent import eq_agent_node
-from core.agents.skill_extractor_agent import skill_extractor_node
-from core.agents.commute_logic_agent import commute_agent_node
-from core.agents.trendscout_agent import trendscout_node
-from core.agents.mimi_router import mimi_router_node
-from core.agents.summarize_agent import summarize_agent_node
-from core.utils.priority_memory import priority_memory
-from core.utils.interaction_logger import logger as interaction_logger
-from core.agents.growth_agent import growth_agent_node
-from core.agents.utils_nodes import (
-    memory_retrieval_node, finalize_session_node, priority_lookup_node,
-    mimi_logging_node, token_tracker_node, readiness_check_node,
-    retry_increment_node
-)
-from core.agents.content_evaluator import content_evaluator_node
-from core.agents.memory_nodes import memory_compaction_node
-import asyncio
+# Lazy Load Wrappers for Nodes
+def wrap_node(module_path, node_name):
+    async def wrapper(state: AgentState):
+        import importlib
+        mod = importlib.import_module(module_path)
+        node_func = getattr(mod, node_name)
+        if asyncio.iscoroutinefunction(node_func):
+            return await node_func(state)
+        result = node_func(state)
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
+    return wrapper
+
+# Specialized wrappers for renamed nodes
+def tech_synthesis_wrapper(state: AgentState):
+    from core.agents.coding_crew import synthesis_node
+    return synthesis_node(state)
+
+def general_synthesis_wrapper(state: AgentState):
+    from core.agents.synthesizer import synthesis_node
+    return synthesis_node(state)
+
+def admin_node_wrapper(state: AgentState):
+    from core.agents.admin_agent import admin_agent_node
+    return admin_agent_node(state)
 
 class HandoffIntent(BaseModel):
     target: Literal[
         "research", "tech", "growth", "bank", "academic", 
         "legal", "mimi", "cos", "heritage", "wellness", 
-        "advisor", "learning", "browser", "mcp", "automation", "intel", "trend"
+        "advisor", "learning", "browser", "mcp", "automation", 
+        "intel", "trend", "multimodal", "engineering", "medicine", 
+        "qa", "precision_health", "ethics", "memory", "synthesis", "persona", "admin", "council"
     ] = Field(description="The internal key for the agent to hand off to.")
     reasoning: str = Field(description="Brief explanation of why this agent was chosen for the handoff.")
 
 class RoutingIntent(BaseModel):
     category: Literal[
-        "research", "bank", "tech", "growth", "academic", 
-        "advisor", "legal", "mimi", "cos", "heritage", 
-        "wellness", "learning", "browser", "mcp", "automation", "commute", "trend"
-    ] = Field(description="The category that best matches the user's request.")
+        "academic", "business", "wellness", "tech", "research", "ops", 
+        "growth", "heritage", "automation", "admin", "multimodal", "general",
+        "fast_path"
+    ] = Field(description="The primary category that best matches the user's request.")
     reasoning: str = Field(description="Brief explanation of why this category was chosen.")
 
 class SupervisorAgent:
-    # ... (init and load_prompts remain same)
-    def __init__(self):
+    """
+    Central orchestrator agent responsible for analyzing user intent 
+    and routing requests to the appropriate specialized sub-agents.
+    """
+    def __init__(self) -> None:
         # KnowledgeAgent is no longer directly used here, as universal_agent_node handles it
-        self.researcher = ZResearch()
-        self.prompts = self._load_prompts()
+        from core.utils.z_research import ZResearch
+        self.researcher: ZResearch = ZResearch()
+        self.prompts: Dict[str, str] = self._load_prompts()
 
     def _load_prompts(self):
         p = {}
         # Normalize the base path to handle mixed slashes on Windows
-        root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
         prompt_dir = os.path.join(root_dir, "prompts")
         
         if os.path.exists(prompt_dir):
@@ -92,49 +99,40 @@ class SupervisorAgent:
                         p[f.replace(".md", "")] = file.read()
         return p
 
-    def route_request(self, user_input: str, memory_context: list = None) -> str:
+    async def route_request(self, user_input: str, memory_context: Optional[List[str]] = None) -> str:
         """
-        Determines intent using structured output via Gemini Flash.
+        Determines routing intent using structured output via LLM.
+        Enhanced with time-of-day awareness and conversation context to prevent misroutes.
         """
+        user_input = sanitize_user_input(user_input)
+        from datetime import datetime
         print(f"  [Supervisor] Determining routing intent for: {user_input[:50]}...")
         
         memory_str = "\n".join([f"- {m}" for m in memory_context]) if memory_context else "None"
         
-        prompt = f"""
-        Analyze the user's request and categorize it correctly.
+        # Time-of-day context for smarter routing
+        now = datetime.now()
+        time_context = f"Current time: {now.strftime('%H:%M')} ({now.strftime('%A')})"
         
-        IMPORTANT RULE: If the request is a simple greeting (e.g., "xin chào", "hello", "hi", "chào"), casual chat, or a broad personal question with no specific domain, ALWAYS return "learning".
+        # Get recent routing history to prevent repeated misroutes
+        routing_history = ""
+        try:
+            from core.services.conversation_store import conversation_store
+            recent_routes = await conversation_store.get_last_routing("default_user", n=3)
+            if recent_routes:
+                routing_history = f"Recent routing: {', '.join(recent_routes)}"
+        except Exception:
+            pass
         
-        Relevant Context from Long-term Memory:
-        {memory_str}
-
-        Categories:
-        - learning: Simple greetings, casual chat, broad personal questions, general AI Assistant queries.
-        - research: PhD research, academic papers, mentorship (Local files).
-        - browser: Live web search, GitHub repos, NPM news, real-time info (Web Access).
-        - bank: Banking strategy, SME, NPS.
-        - tech: Programming, React, Vue, UI components, code, debug, refactor (NOT greetings).
-        - growth: Branding, LinkedIn, sales.
-        - mimi: RESERVED for Mimi's dedicated HomeTutor web app ONLY. DO NOT route here from Telegram or general chat. If the user asks about Grade 7 Science or children's tutoring via Telegram, route to "academic" instead.
-        - academic: Support for secondary science curriculum modules and general tutoring if Mimi agent is not explicitly requested.
-        - wellness: Health, mindset, sleep.
-        - cos: Daily scheduling, task management, "lịch hôm nay", family ops, Executive operations.
-        - automation: External app actions using n8n (Google Calendar, Notion, Slack, LinkedIn, etc.).
-        - mcp: Standardized external tools (GitHub, Slack, Custom API).
-        - commute: Use for requests related to the 4-hour daily bus travel, commute gamification, voice-to-insight during travel, or "Commute Mode".
-        - trend: KOL updates, industry trends, daily briefing, xu hướng mới, mindset changer, cập nhật từ chuyên gia, AI trends, accounting/finance trends, education trends.
-
-        Request: {user_input}
-
-        Return your answer as a raw JSON string matching this schema:
-        {{
-            "category": "category_name",
-            "reasoning": "brief explanation"
-        }}
-        """
+        prompt_template = self.prompts.get("supervisor_routing", "Analyze the user's request and categorize it correctly.")
+        prompt = prompt_template.format(
+            time_context=time_context,
+            routing_history=routing_history,
+            memory_str=memory_str,
+            user_input=user_input
+        )
         
         try:
-            # Using L2/Medium complexity for routing to ensure reliability with Opus-aware thinking
             raw_response = self.researcher.query(prompt, complexity="L2")
             if raw_response.startswith("ERROR"):
                 print(f"  [Supervisor] LLM Query failed with error string. Triggering fallback.")
@@ -143,7 +141,6 @@ class SupervisorAgent:
             if "```json" in raw_response:
                 raw_response = raw_response.split("```json")[1].split("```")[0].strip()
             
-            # Find first { and last } to handle stray text
             start = raw_response.find("{")
             end = raw_response.rfind("}")
             if start != -1 and end != -1:
@@ -160,50 +157,34 @@ class SupervisorAgent:
                 return "academic"
             if any(word in user_input_safe for word in ["live", "search", "web", "internet", "cập nhật"]):
                 return "browser"
-            if any(word in user_input_safe for word in ["calendar", "notion", "lịch", "ghép", "meeting", "hẹn", "automation", "n8n", "task"]):
-                return "cos" # Prefer COS for schedule/tasks rather than empty automation
+            if any(word in user_input_safe for word in [
+                "calendar", "notion", "lịch", "ghép", "meeting", "hẹn", 
+                "automation", "n8n", "task", "hôm nay", "kế hoạch", "schedule",
+                "làm gì", "báo cáo", "report", "ops", "executive"
+            ]):
+                return "cos"
             if any(word in user_input_safe for word in ["skill", "extract", "code", "react", "component", "debug", "dev"]):
                 return "tech"
+            if any(word in user_input_safe for word in ["trend", "xu hướng", "kol", "briefing"]):
+                return "trend"
+            if any(word in user_input_safe for word in ["chào", "hi", "hello", "tạm biệt", "mấy giờ"]):
+                return "fast_path"
             return "learning"
 
-    def determine_handoff_target(self, query: str, metadata: dict = None) -> str:
+    def determine_handoff_target(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """
         Dynamically determines the best handoff target using LLM reasoning.
         """
+        query = sanitize_user_input(query)
         print(f"  [Supervisor] Dynamically resolving handoff for: {query[:50]}...")
         
         meta_str = json.dumps(metadata) if metadata else "None"
         
-        prompt = f"""
-        You are the Swarm Orchestrator. An agent has requested a handoff.
-        
-        REQUEST/CONTEXT: {query}
-        HANDOFF METADATA: {meta_str}
-        
-        Available Agent Keys:
-        - research: Academic/PhD research, complex fact-gathering.
-        - tech: Software development, debugging, architecture.
-        - growth: Branding, marketing, creative brainstorming.
-        - bank: Banking strategy, SME finance.
-        - academic: Teaching, student mentorship.
-        - legal: Legal documents, tax, accounting.
-        - mimi: Socratic tutoring for children.
-        - cos: Executive operations, scheduling.
-        - heritage: Eastern philosophy, family history.
-        - wellness: Health, mindset, fitness.
-        - advisor: Strategic business consulting.
-        - learning: Casual chat, general knowledge.
-        - browser: Real-time web search.
-        - automation: n8n/External task execution.
-        - intel: Generating an intelligence report/summary.
-        - trend: KOL updates, industry trends, daily briefing from experts.
-        
-        Return your answer as a raw JSON string matching this schema:
-        {{
-            "target": "agent_key",
-            "reasoning": "why this agent is the best fit"
-        }}
-        """
+        prompt_template = self.prompts.get("supervisor_handoff", "You are the Swarm Orchestrator. An agent has requested a handoff.")
+        prompt = prompt_template.format(
+            query=query,
+            meta_str=meta_str
+        )
         
         try:
             raw_response = self.researcher.query(prompt, complexity="L2")
@@ -222,84 +203,112 @@ class SupervisorAgent:
             print(f"  [Supervisor] Error in dynamic handoff: {e}. Falling back to 'learning'.")
             return "learning"
 
-def router_node(state: AgentState):
-    """Refined router node with PostHog analytics."""
+
+async def router_node(state: AgentState):
+    """Refined router node with Planner for L3 tasks."""
     messages = state.get("messages") or []
-    print(f"  [DEBUG] router_node messages (raw): {messages}")
+    user_input = messages[-1] if messages else ""
     
-    # Find the last message that is NOT a system message
-    user_input = ""
-    for msg in reversed(messages):
-        if msg and isinstance(msg, str) and not msg.startswith("System"):
-            user_input = msg
-            break
-            
-    if not user_input:
-        user_input = messages[-1] if messages else "No Input Provided"
-    
-    if not isinstance(user_input, str):
-        user_input = str(user_input)
-        
-    user_id = state.get("user_id", "default_user")
-    
-    # Allow manual override via state
-    if state.get("routing_category") and not state.get("routing_category").startswith("critique_"):
-        existing_route = state.get("routing_category")
-        print(f"  [Supervisor] Using pre-set routing category: {existing_route}")
-        return {"routing_category": existing_route, "messages": [f"System: Using manual route: {existing_route}"]}
+    # ... existing Skill Registry check ...
+    from core.skills.skill_registry import skill_registry
+    skill = skill_registry.find_match(user_input)
+    if skill:
+        return {"routing_category": "fast_path_complete", "messages": [f"Assistant: {skill.func(user_input)}"]}
+
+    # Decide if we need a Planner
+    if len(user_input) > 200 or "plan" in user_input.lower():
+        planner = PlannerAgent()
+        plan = await planner.generate_plan(user_input)
+        return {
+            "routing_category": "planned_execution",
+            "execution_plan": plan.dict(),
+            "messages": [f"System: Strategic plan generated. Executing..."]
+        }
 
     supervisor = SupervisorAgent()
-    memory = state.get("long_term_memory", [])
-    route = supervisor.route_request(user_input, memory_context=memory)
-    
-    # Phase 4: Observability
-    obs.track_event(user_id, "agent_routed", {
-        "category": route,
-        "input_length": len(user_input)
-    })
-    
-    return {"routing_category": route, "messages": [f"System: Routing to {route}"]}
-from core.utils.memory_manager import memory_manager
-from core.utils.llm_manager import ContextPruner
+    route = await supervisor.route_request(user_input)
+    return {"routing_category": route, "messages": [f"System: Primary route -> {route}"]}
 
-def daily_intel_node(state: AgentState):
-    """Strategy C: Synthesis of multi-domain intelligence."""
-    llm = LLMManager()
+async def reflection_node(state: AgentState):
+    """Post-synthesis analysis to extract long-term lessons."""
+    reflector = ReflectionAgent()
     messages = state.get("messages", [])
-    summary_context = "\n".join(messages[-10:]) # last 10 steps
+    if not messages: return {}
     
-    prompt = f"""
-    You are the Chief Intelligence Officer. 
-    Review the following multi-agent conversation and synthesize a 'Daily Intel Report'.
+    last_interaction = json.dumps(messages[-2:] if len(messages) >= 2 else messages)
+    log = await reflector.reflect(last_interaction)
     
-    CONTEXT:
-    {summary_context}
+    if log.suggested_memory:
+        await memory_manager.archive_to_semantic(state.get("user_id", "default"), log.suggested_memory)
+        
+    return {"reflection_log": log.dict()}
+
+def fast_path_node(state: AgentState):
+    """Bypasses deep reasoning for trivial queries."""
+    user_input = state["messages"][-1]
+    from core.utils.llm_manager import LLMManager
+    llm = LLMManager()
     
-    MISSION:
-    1. Extract key facts and decisions.
-    2. Identify cross-domain dependencies.
-    3. Suggest next strategic steps for the user.
-    
-    Format:
-    # 🕵️ Intel Report
-    ## 🎯 Key Facts
-    ## 🔗 Dependencies
-    ## 🚀 Recommendations
-    """
-    print("  [Intel Agent] Synthesizing report...")
-    report = llm.query(prompt, complexity="L3")
-    return {"messages": [f"Intel Agent: {report}"]}
-
-from core.agents.browser_agent import browser_agent_node
-
-from core.agents.critic_agent import critic_node
-
-from skills.wellness.oura_client import OuraClient
-
+    prompt = f"Respond naturally to this simple greeting or query: {user_input}"
+    response = llm.query(prompt, complexity="L1")
+    return {"messages": [f"Assistant: {response}"], "routing_category": "fast_path_complete"}
 
 def build_supervisor_graph():
     workflow = StateGraph(AgentState)
     
+    # Static tools that are fast
+    from core.utils.memory_manager import memory_manager
+    from core.utils.llm_manager import ContextPruner
+    
+    # Load nodes lazily
+    ops_node = wrap_node("core.agents.ops_agent", "ops_node")
+    readiness_check_node = wrap_node("core.agents.utils_nodes", "readiness_check_node")
+    memory_retrieval_node = wrap_node("core.agents.utils_nodes", "memory_retrieval_node")
+    memory_compaction_node = wrap_node("core.agents.memory_nodes", "memory_compaction_node")
+    token_tracker_node = wrap_node("core.agents.utils_nodes", "token_tracker_node")
+    finalize_session_node = wrap_node("core.agents.utils_nodes", "finalize_session_node")
+    priority_lookup_node = wrap_node("core.agents.utils_nodes", "priority_lookup_node")
+    
+    universal_agent_node = wrap_node("core.agents.universal_agent", "universal_agent_node")
+    browser_agent_node = wrap_node("core.agents.browser_agent", "browser_agent_node")
+    firecrawl_node = wrap_node("core.agents.firecrawl_agent", "firecrawl_node")
+    growth_agent_node = wrap_node("core.agents.growth_agent", "growth_agent_node")
+    executive_ops_node = wrap_node("core.agents.executive_ops_agent", "executive_ops_node")
+    wellness_agent_node = wrap_node("core.agents.wellness_agent", "wellness_agent_node")
+    iching_agent_node = wrap_node("core.agents.iching_agent", "iching_agent_node")
+    developer_node = wrap_node("core.agents.coding_crew", "developer_node")
+    auditor_node = wrap_node("core.agents.coding_crew", "auditor_node")
+    researcher_node = wrap_node("core.agents.coding_crew", "researcher_node")
+    
+    load_file_node = wrap_node("core.graph", "load_file_node")
+    extract_skill_node = wrap_node("core.graph", "extract_skill_node")
+    save_skill_node = wrap_node("core.graph", "save_skill_node")
+    
+    researcher_perspective = wrap_node("core.agents.parallel_crew", "researcher_perspective")
+    critic_perspective = wrap_node("core.agents.parallel_crew", "critic_perspective")
+    brainstormer_perspective = wrap_node("core.agents.parallel_crew", "brainstormer_perspective")
+    practical_perspective = wrap_node("core.agents.parallel_crew", "practical_perspective")
+    analyst_perspective = wrap_node("core.agents.parallel_crew", "analyst_perspective")
+    
+    socratic_agent_node = wrap_node("core.agents.socratic_agent", "socratic_agent_node")
+    summarize_agent_node = wrap_node("core.agents.summarize_agent", "summarize_agent_node")
+    mimi_router_node = wrap_node("core.agents.mimi_router", "mimi_router_node")
+    scholar_agent_node = wrap_node("core.agents.scholar_agent", "scholar_agent_node")
+    reporting_agent_node = wrap_node("core.agents.reporting_agent", "reporting_agent_node")
+    mcp_agent_node = wrap_node("core.agents.mcp_agent", "mcp_agent_node")
+    n8n_skill_node = wrap_node("core.agents.n8n_skill_agent", "n8n_skill_node")
+    scheduler_node = wrap_node("core.agents.scheduler_agent", "scheduler_node")
+    mimi_logging_node = wrap_node("core.agents.utils_nodes", "mimi_logging_node")
+    critic_node = wrap_node("core.agents.critic_agent", "critic_node")
+    retry_increment_node = wrap_node("core.agents.utils_nodes", "retry_increment_node")
+    verifier_node = wrap_node("core.agents.verifier_agent", "verifier_node")
+    eq_agent_node = wrap_node("core.agents.eq_agent", "eq_agent_node")
+    skill_extractor_node = wrap_node("core.agents.skill_extractor_agent", "skill_extractor_node")
+    commute_agent_node = wrap_node("core.agents.commute_logic_agent", "commute_agent_node")
+    trendscout_node = wrap_node("core.agents.trendscout_agent", "trendscout_node")
+    content_evaluator_node = wrap_node("core.agents.content_evaluator", "content_evaluator_node")
+    council_node = wrap_node("core.agents.council_agent", "council_agent_node")
+
     workflow.add_node("ops_guard", ops_node)
     workflow.add_node("readiness_check", readiness_check_node)
     workflow.add_node("memory_retrieval", memory_retrieval_node)
@@ -323,13 +332,26 @@ def build_supervisor_graph():
     workflow.add_node("advisor_node", universal_agent_node)
     workflow.add_node("learning_node", universal_agent_node)
     workflow.add_node("executive_ops_node", executive_ops_node)
-    workflow.add_node("intel_report", daily_intel_node)
+    workflow.add_node("admin_node", admin_node_wrapper)
+    workflow.add_node("iching_node", iching_agent_node)
+    workflow.add_node("council_node", council_node)
+    workflow.add_node("fast_path_node", fast_path_node)
+    
+    multimodal_agent_node = wrap_node("core.agents.multimodal_agent", "multimodal_node")
+    workflow.add_node("multimodal_node", multimodal_agent_node)
+    workflow.add_node("engineering_node", universal_agent_node)
+    workflow.add_node("medicine_node", universal_agent_node)
+    workflow.add_node("qa_node", universal_agent_node)
+    workflow.add_node("ethics_node", universal_agent_node)
+    workflow.add_node("synthesis_node", universal_agent_node)
+    workflow.add_node("persona_node", universal_agent_node)
+    workflow.add_node("memory_node", universal_agent_node)
     
     # Coding Crew (Parallel Branch)
     workflow.add_node("developer", developer_node)
     workflow.add_node("auditor", auditor_node)
     workflow.add_node("researcher", researcher_node)
-    workflow.add_node("synthesis", tech_synthesis_node)
+    workflow.add_node("synthesis", tech_synthesis_wrapper)
     
     workflow.add_node("tech_load", load_file_node)
     workflow.add_node("tech_extract", extract_skill_node)
@@ -341,13 +363,9 @@ def build_supervisor_graph():
     workflow.add_node("brainstormer_p", brainstormer_perspective)
     workflow.add_node("practical_p", practical_perspective)
     workflow.add_node("analyst_p", analyst_perspective)
-    workflow.add_node("general_synthesis", general_synthesis_node)
+    workflow.add_node("general_synthesis", general_synthesis_wrapper)
 
-    workflow.add_node("mimi_tutor", socratic_agent_node)
-    workflow.add_node("mimi_summarizer", summarize_agent_node)
-    workflow.add_node("mimi_router", mimi_router_node)
-    workflow.add_node("scholar_tutor", scholar_agent_node)
-    workflow.add_node("parent_reporting", reporting_agent_node)
+    workflow.add_node("specialized_knowledge", specialized_knowledge_node)
     workflow.add_node("mcp_node", mcp_agent_node)
     workflow.add_node("n8n_skill_node", n8n_skill_node)
     workflow.add_node("scheduler_node", scheduler_node)
@@ -364,6 +382,9 @@ def build_supervisor_graph():
     workflow.add_node("commute_node", commute_agent_node)
     workflow.add_node("trendscout_node", trendscout_node)
     workflow.add_node("content_curator_critic", content_evaluator_node)
+    workflow.add_node("intel_report", intelligence_node)
+    workflow.add_node("multimodal_node", multimodal_node)
+    workflow.add_node("council_node", council_agent_node)
     
     workflow.set_entry_point("ops_guard")
     workflow.add_edge("ops_guard", "eq_sensing")
@@ -372,77 +393,30 @@ def build_supervisor_graph():
     workflow.add_edge("memory_retrieval", "memory_compaction")
     workflow.add_edge("memory_compaction", "priority_lookup")
     workflow.add_edge("priority_lookup", "supervisor")
-    
-    def decide_route(state):
+    workflow.add_node("reflection", reflection_node)
+    def decide_route(state: AgentState):
         route = state.get("routing_category")
-        messages = state.get("messages", [])
-        readiness = state.get("readiness_score", 100)
         
-        # BIO-ADAPTIVE ROUTING: If readiness is critical (< 65), pivot to Wellness/Stoic
-        # EXEMPTION: Mimi's educational tutoring should NEVER be pivoted to wellness.
-        if readiness < 65 and route in ["tech", "research", "intel"] and not route.startswith("mimi"):
-            print(f"  [Supervisor] Readiness Low ({readiness}). Pivoting from {route} to wellness/recovery.")
-            return ["wellness_node"]
-
-        print(f"  [DEBUG] decide_route: route={route}, messages_len={len(messages) if messages else 'None'}")
-        
-        if route == "tech": 
-            # If user asks to extract/save/load, use file logic. Else use Parallel Crew.
-            if not messages or not isinstance(messages[-1], str):
-                print("  [DEBUG] decide_route: messages is None, empty, or not a string list!")
-                return ["learning_node"]
-            
-            user_input = messages[-1].lower()
-            if any(w in user_input for w in ["extract", "save skill", "load file"]):
-                return ["tech_load"]
-            return ["developer", "auditor", "researcher"]
-            
-        if route == "research":
-            return ["researcher_p", "critic_p", "analyst_p"]
-            
-        if route == "growth":
-            return ["brainstormer_p", "practical_p", "researcher_p"]
-
-        # Token Optimization: Collapse parallel branches if over budget
-        token_budget = state.get("token_tracker", 0)
-        SOFT_LIMIT = 5000 # Example soft limit for parallelization
-        
-        if token_budget > SOFT_LIMIT:
-            print(f"  [System] Token budget low ({token_budget}). Collapsing parallel branches.")
-            if route in ["tech", "research", "growth"]:
-                return ["learning_node"] # Use a single universal agent instead of parallel crew
-
+        # TIER 2: SPECIALIST SUB-ROUTING
         mapping = {
-            "bank": ["bank_node"], 
-            "academic": ["scholar_tutor"], 
-            "legal": ["legal_node"],
-            "mimi": ["mimi_router"],
-            "mimi_theory": ["mimi_summarizer"],
-            "mimi_exercise": ["mimi_tutor"],
-            "mimi_general": ["mimi_summarizer"],
-            "cos": ["executive_ops_node"],
-            "heritage": ["heritage_node"], 
-            "wellness": ["wellness_node"], 
-            "advisor": ["advisor_node"],
-            "learning": ["learning_node"], # Fix: Was routing to scholar_tutor incorrectly
-            "browser": ["firecrawl_node"],
-            "mcp": ["mcp_node"],
+            "academic": ["specialized_knowledge"],
+            "business": ["specialized_knowledge"], 
+            "wellness": ["specialized_knowledge"],
+            "tech": ["developer", "auditor", "researcher"],
+            "research": ["researcher_p", "critic_p", "analyst_p"],
+            "growth": ["brainstormer_p", "practical_p", "researcher_p"],
+            "ops": ["specialized_knowledge"],
+            "heritage": ["specialized_knowledge"],
             "automation": ["n8n_skill_node"],
-            "commute": ["commute_node"],
-            "trend": ["trendscout_node"]
+            "admin": ["admin_node"],
+            "multimodal": ["multimodal_node"],
+            "general": ["specialized_knowledge"],
+            "fast_path": ["fast_path_node"],
+            "fast_path_complete": ["finalize"],
+            "planned_execution": ["developer"] 
         }
         
-        # Custom Logic for Scheduler Optimization
-        if route == "cos":
-            if any(w in str(messages[-1]).lower() for w in ["tối ưu", "optimize", "sắp xếp lại", "rearrange"]):
-                print("  [Supervisor] Routing to scheduler_node for optimization.")
-                return ["scheduler_node"]
-            return ["executive_ops_node"]
-
-        if route == "priority_hit":
-            return ["mimi_logger"] # Go straight to logging then END (finalize)
-
-        return mapping.get(route, ["learning_node"])
+        return mapping.get(route, ["specialized_knowledge"])
             
     workflow.add_conditional_edges(
         "supervisor",
@@ -450,33 +424,67 @@ def build_supervisor_graph():
     )
     
     # Joint point for parallel branch
-    workflow.add_edge("developer", "synthesis")
-    workflow.add_edge("auditor", "synthesis")
-    workflow.add_edge("researcher", "synthesis")
-    # REMOVED: workflow.add_edge("synthesis", "verifier") -> now handled exclusively by after_synthesis
-    
-    # Joint points for Generalized Parallel
-    workflow.add_edge("researcher_p", "general_synthesis")
-    workflow.add_edge("critic_p", "general_synthesis")
-    workflow.add_edge("analyst_p", "general_synthesis")
-    workflow.add_edge("brainstormer_p", "general_synthesis")
-    workflow.add_edge("practical_p", "general_synthesis")
-    
-    
-    # synthesis and general_synthesis flow through intermediate_nodes -> token_tracker -> critic
-    
     workflow.add_edge("tech_load", "tech_extract")
     workflow.add_edge("tech_extract", "tech_save")
     
+    def decide_coding_next(state):
+        if state.get("is_valid") is False and state.get("retry_count", 0) < 2:
+            return "retry"
+        return "synthesis"
+
+    workflow.add_conditional_edges(
+        "auditor",
+        decide_coding_next,
+        {
+            "retry": "retry_increment",
+            "synthesis": "synthesis"
+        }
+    )
+    workflow.add_edge("researcher", "synthesis")
+    
+    # ---------------------------------------------------------
+    # DYNAMIC TEAM ASSEMBLY (Phase 4 Upgrade)
+    # ---------------------------------------------------------
+    def dynamic_team_resolver(state: AgentState):
+        """
+        Queries LLM to pick multiple specialized agents for a complex task.
+        """
+        user_input = state.get("messages", [""])[-1]
+        print(f"  [Supervisor] Dynamically assembling team for: {user_input[:50]}...")
+        
+        from core.utils.llm_manager import LLMManager
+        llm = LLMManager()
+        
+        prompt = f"""
+        You are the Dynamic Team Orchestrator. Given the user request, pick 1-3 best sub-agents to solve it.
+        
+        REQUEST: {user_input}
+        
+        Available Agents:
+        - developer: Write/Fix code.
+        - researcher_p: Academic/Deep research.
+        - wellness_node: Health/Fitness.
+        - scholar_tutor: Academic subjects (K-12).
+        - executive_ops_node: Scheduling/Task management.
+        - browser_node: Live web search.
+        
+        Return only a JSON list of node names, e.g., ["developer", "researcher_p"].
+        """
+        try:
+            res = llm.query(prompt, complexity="L1")
+            import json
+            team = json.loads(res.strip('`').replace('json\n', ''))
+            return team if isinstance(team, list) else ["learning_node"]
+        except:
+            return ["learning_node"]
+
     # All specialized outputs go to tracker then CRITIC
     intermediate_nodes_all = [
-        "research_node", "firecrawl_node", "browser_node", "bank_node", 
-        "growth_node", "academic_node", "legal_node", "executive_ops_node", 
-        "heritage_node", "wellness_node", "advisor_node", "learning_node", 
-        "tech_save", "mimi_tutor", "mimi_summarizer", "scholar_tutor", 
+        "research_node", "firecrawl_node", "browser_node", "specialized_knowledge",
+        "tech_save", "mimi_router", "mimi_summarizer", 
         "parent_reporting", "synthesis", "general_synthesis", "mcp_node", 
         "scheduler_node", "verifier", "commute_node", "trendscout_node",
-        "intel_report"
+        "intel_report", "multimodal_node", "admin_node", "council_node"
     ]
     # For handoff logic iteration
     intermediate_nodes = intermediate_nodes_all
@@ -499,21 +507,32 @@ def build_supervisor_graph():
             "research": "research_node",
             "tech": "developer",
             "growth": "researcher_p",
-            "bank": "bank_node",
-            "academic": "scholar_tutor",
-            "legal": "legal_node",
-            "mimi": "mimi_tutor",
-            "scholar": "scholar_tutor",
-            "cos": "executive_ops_node",
-            "heritage": "heritage_node",
-            "wellness": "wellness_node",
-            "advisor": "advisor_node",
-            "learning": "scholar_tutor",
+            "bank": "specialized_knowledge",
+            "academic": "specialized_knowledge",
+            "legal": "specialized_knowledge",
+            "mimi": "specialized_knowledge",
+            "scholar": "specialized_knowledge",
+            "cos": "specialized_knowledge",
+            "heritage": "specialized_knowledge",
+            "wellness": "specialized_knowledge",
+            "advisor": "specialized_knowledge",
+            "learning": "specialized_knowledge",
             "intel": "intel_report",
             "browser": "firecrawl_node",
             "mcp": "mcp_node",
             "automation": "n8n_skill_node",
-            "trend": "trendscout_node"
+            "trend": "trendscout_node",
+            "multimodal": "multimodal_node",
+            "engineering": "specialized_knowledge",
+            "medicine": "specialized_knowledge",
+            "qa": "specialized_knowledge",
+            "precision_health": "specialized_knowledge",
+            "ethics": "specialized_knowledge",
+            "memory": "memory_node",
+            "synthesis": "synthesis_node",
+            "persona": "persona_node",
+            "iching": "specialized_knowledge",
+            "admin": "admin_node"
         }
 
         # If a handoff was requested
@@ -549,16 +568,19 @@ def build_supervisor_graph():
         if state.get("handoff_target"): return resolve_handoff(state)
         return "mimi_logger"
 
-    # Standard handoff for most nodes
+    # Standard handoff for most nodes (through critic)
     for node in [
-        "research_node", "firecrawl_node", "browser_node", "bank_node", 
-        "academic_node", "legal_node", "executive_ops_node", "heritage_node", 
-        "wellness_node", "advisor_node", "learning_node", "tech_save", 
-        "scholar_tutor", "parent_reporting", "general_synthesis", 
+        "research_node", "firecrawl_node", "browser_node", "specialized_knowledge",
+        "tech_save", "mimi_router", "mimi_summarizer", 
+        "parent_reporting", "general_synthesis", 
         "mcp_node", "scheduler_node", "commute_node", "trendscout_node",
-        "intel_report"
+        "multimodal_node", "synthesis_node", "persona_node", "memory_node", "admin_node"
     ]:
         workflow.add_conditional_edges(node, resolve_handoff)
+
+    # Wellness & Fast Path bypasses the critic
+    workflow.add_edge("wellness_node", "finalize")
+    workflow.add_edge("fast_path_node", "finalize")
 
     # Specialist joint nodes
     workflow.add_conditional_edges("synthesis", after_synthesis)
@@ -575,14 +597,20 @@ def build_supervisor_graph():
         retry_count = state.get("retry_count", 0)
         execution_status = state.get("execution_status")
         
+        # CONDITIONAL CRITIC: Skip for simple or already analyzed routes
+        skip_critic_routes = ["fast_path", "general", "admin", "well-being"]
+        if decision in skip_critic_routes and retry_count == 0:
+            return "finalize"
+
+        # Check response length - skip critic for very short responses
+        messages = state.get("messages", [])
+        if messages and len(str(messages[-1])) < 200 and retry_count == 0:
+            return "finalize"
+
         # Self-Healing Loop: retry if critic says REVISE OR if execution FAILED
         if (decision == "critique_revise" or execution_status == "failure") and retry_count < 2:
             return "retry_increment"
         
-        # New loop for ContentCurator
-        if decision == "revise_content" and retry_count < 2:
-             return "retry_increment"
-
         return "finalize"
 
     def decide_content_quality(state):
@@ -601,15 +629,23 @@ def build_supervisor_graph():
     )
     
     workflow.add_edge("retry_increment", "supervisor")
-    workflow.add_edge("finalize", END)
-    return workflow.compile()
+    workflow.add_edge("finalize", "reflection")
+    workflow.add_edge("reflection", END)
+
+    # ---------------------------------------------------------
+    # HUMAN-IN-THE-LOOP (HITL) CONFIGURATION
+    # ---------------------------------------------------------
+    # We interrupt before sensitive actions to allow user review.
+    return workflow.compile(
+        interrupt_before=["executive_ops_node", "tech_save", "admin_node"]
+    )
 
 if __name__ == "__main__":
     import sys
     async def test_routing():
         graph = build_supervisor_graph()
         query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "how do I use MCP to create a github issue?"
-        print(f"--- Testing Supervisor Routing for: {query} ---")
+        logger.info(f"--- Testing Supervisor Routing for: {query} ---")
         initial_state = {
             "messages": [query],
             "user_id": "test_user",

@@ -23,7 +23,7 @@ class ZResearch:
 
     def query(self, prompt: str, complexity: str = "auto", thinking_depth: str = "auto") -> str:
         """Internal API query via LLMManager fallback chain with Opus thinking."""
-        return self.llm_manager.query(prompt, complexity=complexity)
+        return self.llm_manager.query_sync(prompt, complexity=complexity)
 
     def generate_research_strategy(self, query: str) -> dict:
         """Breaks down a query and provides a copy-paste prompt for chat.z.ai."""

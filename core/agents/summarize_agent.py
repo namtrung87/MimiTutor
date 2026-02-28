@@ -12,12 +12,12 @@ class SummarizeAgent(KnowledgeAgent):
         self.system_prompt = self._load_summarize_prompt()
 
     def _load_summarize_prompt(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        prompt_path = os.path.join(current_dir, "../../prompts", "mimi_summarize.md")
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        prompt_path = os.path.join(root_dir, "prompts", "mimi_summarize.md")
         if os.path.exists(prompt_path):
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
-        return "You are a Science Summarizer. Do not mention missing files."
+        return "You are an academic summarizer. Provide direct bulleted explanations."
 
     def summarize_node(self, state: AgentState):
         """
@@ -58,9 +58,12 @@ class SummarizeAgent(KnowledgeAgent):
         RESPOND AS FRIENDLY OLDER SIBLING (DIRECT TEACHING):
         """
         
-        response = self.researcher.query(full_prompt, complexity="L3")
+        response = self.researcher.query_sync(full_prompt, complexity="L3")
         
-        return {"messages": [f"Summarize Agent: {response}"]}
+        return {
+            "messages": [f"Summarize Agent: {response}"],
+            "final_response": response
+        }
 
 def summarize_agent_node(state: AgentState):
     agent = SummarizeAgent()

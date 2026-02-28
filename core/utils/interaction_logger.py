@@ -1,7 +1,7 @@
-import sqlite3
 import os
 from datetime import datetime
 import json
+from core.utils.db_utils import AsyncSQLite
 
 class InteractionLogger:
     def __init__(self, db_path=None):
@@ -13,9 +13,11 @@ class InteractionLogger:
             db_path = os.path.join(db_dir, "mimi_interactions.db")
         
         self.db_path = db_path
+        self.db = AsyncSQLite(db_path)
         self._init_db()
 
     def _init_db(self):
+        import sqlite3
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -43,13 +45,12 @@ class InteractionLogger:
 
         conn.close()
 
-    def log_interaction(self, user_id, user_input, intent, agent_thought, agent_output, tags=None, metadata=None):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
+    async def log_interaction(self, user_id, user_input, intent, agent_thought, agent_output, tags=None, metadata=None):
+        query = '''
             INSERT INTO interactions (timestamp, user_id, user_input, intent, agent_thought, agent_output, tags, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
+        '''
+        params = (
             datetime.now().isoformat(),
             user_id,
             user_input,
@@ -58,28 +59,20 @@ class InteractionLogger:
             agent_output,
             json.dumps(tags) if tags else None,
             json.dumps(metadata) if metadata else None
-        ))
-        conn.commit()
-        conn.close()
+        )
+        await self.db.execute(query, params)
 
-    def get_daily_interactions(self, user_id="default_user"):
+    async def get_daily_interactions(self, user_id="default_user"):
         """Retrieves all interactions for the current day."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
         today_start = datetime.now().strftime("%Y-%m-%d") + "T00:00:00"
-        
-        cursor.execute('''
+        query = '''
             SELECT user_input, intent, agent_output, timestamp 
             FROM interactions 
             WHERE user_id = ? AND timestamp >= ?
             ORDER BY timestamp ASC
-        ''', (user_id, today_start))
-        
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
+        '''
+        params = (user_id, today_start)
+        return await self.db.fetch_all(query, params)
 
 # Singleton instance
 logger = InteractionLogger()

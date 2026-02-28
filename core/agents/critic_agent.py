@@ -22,46 +22,65 @@ class CriticAgent:
         self.llm = LLMManager()
 
     def evaluate(self, state: AgentState) -> RatingIntent:
-        messages = state.get("messages", [])
-        if len(messages) < 1:
+        messages = state.messages
+        if not messages:
             return RatingIntent(decision="APPROVE", reasoning="No messages to evaluate.", feedback=None)
 
-        last_ai_response = messages[-1]
-        user_input = messages[-2] if len(messages) >= 2 else "Context missing"
-        memory = state.get("long_term_memory", "None.")
+        # Skip all "System:" messages at the end to find the actual AI response
+        last_ai_response = ""
+        user_input = "Context missing"
+        
+        # We need the last non-System message as AI response, and the one before that as User input.
+        non_system_msgs = [m for m in messages if isinstance(m, str) and not m.startswith("System:")]
+        
+        if len(non_system_msgs) >= 1:
+            last_ai_response = non_system_msgs[-1]
+        if len(non_system_msgs) >= 2:
+            user_input = non_system_msgs[-2]
+            
+        memory = state.long_term_memory or "None."
 
-        prompt = f"""
-        You are the 'Quality Guard' for an AI Agent team.
-        Your job is to CRITIQUE the following AI response based on the CHECKLIST below.
+    def _load_prompt(self):
+        if not hasattr(self, "_cached_prompt") or self._cached_prompt is None:
+            root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
+            prompt_path = os.path.join(root_dir, "prompts", "critic_quality_guard.md")
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    self._cached_prompt = f.read()
+            else:
+                self._cached_prompt = "You are the 'Quality Guard' for an AI Agent team."
+        return self._cached_prompt
 
-        USER INPUT: {user_input}
-        USER BACKGROUND (MEMORY): {memory}
-        AI RESPONSE: {last_ai_response}
+    def evaluate(self, state: AgentState) -> RatingIntent:
+        messages = state.messages
+        if not messages:
+            return RatingIntent(decision="APPROVE", reasoning="No messages to evaluate.", feedback=None)
 
-        --- QUALITY CHECKLIST ---
-        1. [STYLE]: Is the tone helpful, engaging, and age-appropriate?
-        2. [INTENT]: Does it directly address the user's core request?
-        3. [FOCUSED]: Is the information concise or unnecessarily verbose?
-        4. [SOCRATIC]: If this is a school exercise, does it guide (Socratic) instead of just giving the answer?
-        5. [ACCURACY]: Are there any hallucinations or contradictions?
+        # Skip all "System:" messages at the end to find the actual AI response
+        last_ai_response = ""
+        user_input = "Context missing"
+        
+        # We need the last non-System message as AI response, and the one before that as User input.
+        non_system_msgs = [m for m in messages if isinstance(m, str) and not m.startswith("System:")]
+        
+        if len(non_system_msgs) >= 1:
+            last_ai_response = non_system_msgs[-1]
+        if len(non_system_msgs) >= 2:
+            user_input = non_system_msgs[-2]
+            
+        memory = state.long_term_memory or "None."
 
-        CRITIQUE RULES:
-        - If ANY checklist item fails significantly, mark as REVISE.
-        - provide specific feedback on which item failed.
-        - If it's a Socratic tutor (Mimi), direct answers for general learning ARE OK, but answers for solutions/homework ARE NOT.
-
-        Return your critique as a raw JSON string:
-        {{
-            "decision": "APPROVE" or "REVISE",
-            "reasoning": "brief summary of checklist results",
-            "feedback": "specific instructions for the agent to fix the output"
-        }}
-        """
+        prompt_template = self._load_prompt()
+        prompt = prompt_template.format(
+            user_input=user_input,
+            memory=memory,
+            last_ai_response=last_ai_response
+        )
 
         # Phase 13: Robust JSON Parsing
         from core.utils.json_repair import repair_json
         
-        raw = self.llm.query(prompt, complexity="L2")
+        raw = self.llm.query_sync(prompt, complexity="L2")
         if not raw:
             return RatingIntent(decision="APPROVE", reasoning="LLM returned empty response (Auto-Approved).", feedback=None)
         

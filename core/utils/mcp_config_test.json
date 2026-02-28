@@ -1,0 +1,11 @@
+{
+    "servers": {
+        "project": {
+            "command": "python",
+            "args": [
+                "core/utils/project_mcp_server.py"
+            ],
+            "description": "Internal project tools"
+        }
+    }
+}

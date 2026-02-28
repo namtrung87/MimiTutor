@@ -22,11 +22,12 @@ class FrontendVisionAgent:
             return "Error: Valid image file required for Vision Agent."
 
         try:
-            genai.configure(api_key=self.key_manager.get_working_key())
+            genai.configure(api_key=self.key_manager.get_key())
             uploaded_file = genai.upload_file(path=image_path, mime_type=mime_type)
             
             # Using 1.5 Pro or Flash for Vision. 2.0 Flash is even better.
-            model = genai.GenerativeModel("gemini-3-flash-preview")
+            model_id = "gemini-2.0-flash"
+            model = genai.GenerativeModel(model_id)
             
             prompt = f"""
             You are the Orchesta App Creator (OAC) specialized in iPhone development.
@@ -47,7 +48,16 @@ class FrontendVisionAgent:
             Strictly follow the 'Intent-First' OAC protocol.
             """
 
+            # For extraction tracking consistency:
+            from core.llm import UsageStats
+            
             response = model.generate_content([uploaded_file, prompt])
+            
+            try:
+                # Manual log since we bypass LLMManager for file support
+                UsageStats.log_usage(model_id, 1000, 2000) # Estimate
+            except:
+                pass
             
             # Clean up
             try:

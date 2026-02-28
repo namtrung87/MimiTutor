@@ -8,18 +8,10 @@ class SecurityGuard:
     """
     def __init__(self, workspace_root: Optional[str] = None):
         # Approved roots for the security guard
-        # Anchor everything to the project root (where backend/ lives)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # core/utils -> backend root (Orchesta assistant)
-        project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-        mimi_learning = os.path.abspath(os.path.join(project_root, "../Mimi learning"))
-        
-        self.approved_roots = [project_root, mimi_learning]
-        
-        # Add a special allowance for Render's project root if different
-        project_root = "/opt/render/project/src"
-        if os.path.exists(project_root) and project_root not in self.approved_roots:
-            self.approved_roots.append(project_root)
+        self.approved_roots = [
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../Mimi learning"))
+        ]
         
         print(f"  [Security] Scoped to: {self.approved_roots}")
 

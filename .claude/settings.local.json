@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import numpy as np; arr = np.load\\(''chroma_knowledgedb/embeddings_cache.npy'', allow_pickle=True\\); print\\(f''Type: {type\\(arr\\)}, Shape: {arr.shape if hasattr\\(arr, \"\"shape\"\"\\) else len\\(arr\\)}, Dtype: {arr.dtype}''\\)\")",
+      "Bash(grep -n \"from core.utils.llm_manager import\\\\|LLMManager\\(\" core/agents/*.py)"
+    ]
+  }
+}

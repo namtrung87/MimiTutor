@@ -102,7 +102,7 @@ class GrowthAgent:
     """
     
     def __init__(self, base_dir: str = None):
-        self.llm = LLMManager()
+        self.llm = LLMManager(app_name="mimi_hometutor")
         self.base_dir = Path(base_dir or os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         self.drafts_dir = self.base_dir / "08_Growth_Branding" / "drafts"
         self.drafts_dir.mkdir(parents=True, exist_ok=True)

@@ -5,20 +5,34 @@ from typing import List, Optional
 import os
 import sys
 import io
+import asyncio
 
 # Add current and parent directory to sys.path for robust imports in Linux/Render
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.abspath(os.path.join(current_dir, "../")) # 05_Mimi_HomeTutor
 true_root = os.path.abspath(os.path.join(root_dir, "../"))    # Project Root
 
-for path in [root_dir, true_root]:
-    if path not in sys.path:
-        sys.path.append(path)
+# Prioritize project root and local root in sys.path
+# We want: [true_root, root_dir, ...]
+# Only remove the source roots if they are already in path to avoid duplicates, 
+# but DO NOT remove the entire .venv_fix site-packages.
+for p in [root_dir, true_root]:
+    if p in sys.path:
+        sys.path.remove(p)
+sys.path.insert(0, root_dir)
+sys.path.insert(0, true_root)
 
-# Ensure UTF-8 for logs
+print(f"DEBUG: sys.path[0] = {sys.path[0]}", flush=True)
+print(f"DEBUG: sys.path[1] = {sys.path[1]}", flush=True)
+
+# Ensure UTF-8 for logs on Windows to prevent Errno 22
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 from core.agents.mimi_hometutor import build_mimi_graph
 from core.state import AgentState
@@ -29,6 +43,13 @@ import shutil
 extractor = MultimodalExtractor()
 
 app = FastAPI(title="Mimi Socratic API")
+
+# Vietnamese fallback message shown as a normal bot reply when the LLM chain fails.
+# Returning HTTP 200 here prevents the frontend catch block from firing.
+MIMI_FALLBACK_MSG = (
+    "Ối, chị bị đứt dòng suy nghĩ một chút rồi! 🌸 "
+    "Em hỏi lại chị câu đó nhé, chị sẽ cố gắng trả lời ngay!"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,19 +73,85 @@ class ChatRequest(BaseModel):
     message: str
     history: Optional[List[str]] = []
     user_id: Optional[str] = "default_user"
+    session_id: Optional[str] = "default_session"
 
 class ChatResponse(BaseModel):
     response: str
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    message_index: int
+    rating: int # 1 for up, -1 for down
+
+# Rate Limiting
+import time
+RATE_LIMIT_DICT = {}
+MAX_REQUESTS_PER_MIN = 10
+
+def check_rate_limit(identifier: str):
+    """Simple sliding window rate limiter."""
+    now = time.time()
+    if identifier not in RATE_LIMIT_DICT:
+        RATE_LIMIT_DICT[identifier] = []
+    
+    # Filter out requests older than 60 seconds
+    RATE_LIMIT_DICT[identifier] = [req_time for req_time in RATE_LIMIT_DICT[identifier] if now - req_time < 60]
+    
+    if len(RATE_LIMIT_DICT[identifier]) >= MAX_REQUESTS_PER_MIN:
+        raise HTTPException(status_code=429, detail="Bạn hỏi hơi nhanh rồi đó! Nghỉ tay 1 phút rồi quay lại nha Mimi! 🌸")
+        
+    RATE_LIMIT_DICT[identifier].append(now)
 
 graph = build_mimi_graph()
 
 import traceback
 
+def extract_final_response(results: dict) -> str:
+    """
+    Robustly extracts the final response from the agent graph results.
+    Prioritizes the 'final_response' field, then falls back to prefix scanning.
+    """
+    if not results:
+        return "Chị chưa nhận được câu trả lời phù hợp. Em hỏi lại chị theo cách khác được không? 🌸"
+    
+    # 1. First priority: Check the dedicated field
+    final_resp = results.get("final_response")
+    if final_resp and isinstance(final_resp, str):
+        print(f"DEBUG: Found final_response field: {final_resp[:100]}...", flush=True)
+        return final_resp.strip()
+    
+    # 2. Fallback: Scan messages backwards for agent prefixes
+    messages = results.get("messages", [])
+    agent_prefixes = ("Mimi Agent:", "Scholar Agent:", "Academic Agent:", "Socratic Agent:", "Tutor Agent:", "Summarize Agent:", "Mimi:", "Scholar:")
+    
+    for msg in reversed(messages):
+        if msg and isinstance(msg, str):
+            msg_clean = msg.strip()
+            # Skip system messages and internal verdicts
+            if msg_clean.startswith("System:") or any(v in msg_clean for v in ["APPROVE | Reason", "REVISE | Reason"]):
+                continue
+            
+            # check for prefixes
+            for prefix in agent_prefixes:
+                if msg_clean.startswith(prefix):
+                    extracted = msg_clean.split(prefix, 1)[-1].strip()
+                    print(f"DEBUG: Extracted via prefix '{prefix}': {extracted[:100]}...", flush=True)
+                    return extracted
+            
+            # If no prefix match but it's not system-like, return it as raw response
+            print(f"DEBUG: Falling back to raw message: {msg_clean[:100]}...", flush=True)
+            return msg_clean
+
+    return "Chị chưa nhận được câu trả lời phù hợp. Em hỏi lại chị theo cách khác được không? 🌸"
+
 @app.post("/mimi/chat", response_model=ChatResponse)
 async def mimi_chat(request: ChatRequest):
+    check_rate_limit(request.session_id or request.user_id)
+    
     initial_state = {
         "messages": [f"Mimi: {request.message}"], # Prefix to force routing
         "user_id": request.user_id,
+        "session_id": request.session_id,
         "input_file": "",
         "file_content": None,
         "extracted_skill": None,
@@ -73,47 +160,20 @@ async def mimi_chat(request: ChatRequest):
     }
     
     try:
-        results = graph.invoke(initial_state)
-        messages = results.get("messages", [])
-        
-        print(f"DEBUG: Full messages list: {messages}", flush=True)
-        
-        # Search backwards for the last pedagogical or user message
-        response_text = "I'm sorry, I couldn't generate a response."
-        # Known prefixes for actual content
-        agent_prefixes = ("Mimi Agent:", "Scholar Agent:", "Academic Agent:", "Socratic Agent:", "Tutor Agent:", "Mimi:", "Scholar:")
-        
-        for msg in reversed(messages):
-            print(f"DEBUG: Evaluating message: {msg}", flush=True)
-            if msg and isinstance(msg, str):
-                msg_clean = msg.strip()
-                # Skip system messages
-                if msg_clean.startswith("System:"):
-                    continue
-                
-                # If it's an agent response with a known prefix, extract the content
-                for prefix in agent_prefixes:
-                    if msg_clean.startswith(prefix):
-                        response_text = msg_clean.split(prefix, 1)[-1].strip()
-                        print(f"DEBUG: Selected agent response: {response_text}", flush=True)
-                        return ChatResponse(response=response_text)
-                
-                # Fallback: if no prefix matches but it's not a system message, 
-                # we check if it looks like a verdict (to skip it)
-                if any(v in msg_clean for v in ["APPROVE | Reason", "REVISE | Reason"]):
-                    print(f"DEBUG: Skipping internal verdict: {msg_clean}", flush=True)
-                    continue
-                    
-                # Last resort: return the raw message if it's not system-like
-                response_text = msg_clean
-                print(f"DEBUG: Selected raw response: {response_text}", flush=True)
-                break
-        
+        results = await asyncio.wait_for(
+            asyncio.to_thread(graph.invoke, initial_state), 
+            timeout=60.0
+        )
+        response_text = extract_final_response(results)
         return ChatResponse(response=response_text)
+    except asyncio.TimeoutError:
+        print("Timeout in mimi_chat after 60.0s")
+        return ChatResponse(response=MIMI_FALLBACK_MSG)
     except Exception as e:
         print(f"Error in mimi_chat: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return HTTP 200 with warm Vietnamese fallback — never expose a 500 to the frontend
+        return ChatResponse(response=MIMI_FALLBACK_MSG)
 
 @app.post("/parent/report", response_model=ChatResponse)
 async def parent_report(request: ChatRequest):
@@ -147,8 +207,11 @@ async def parent_report(request: ChatRequest):
 async def mimi_chat_multimodal(
     message: str = Form(""),
     user_id: str = Form("default_user"),
+    session_id: str = Form("default_session"),
     file: Optional[UploadFile] = File(None)
 ):
+    check_rate_limit(session_id or user_id)
+    
     final_message = message
 
     if file:
@@ -177,6 +240,7 @@ async def mimi_chat_multimodal(
     initial_state = {
         "messages": [f"Mimi: {final_message}"],
         "user_id": user_id,
+        "session_id": session_id,
         "input_file": "",
         "file_content": None,
         "extracted_skill": None,
@@ -185,67 +249,38 @@ async def mimi_chat_multimodal(
     }
     
     try:
-        results = graph.invoke(initial_state)
-        messages = results.get("messages", [])
-        print(f"  [Multimodal API] Graph Messages: {messages}")
-        
-        response_text = "I'm sorry, I couldn't generate a response."
-        agent_prefixes = ("Mimi Agent:", "Scholar Agent:", "Academic Agent:", "Socratic Agent:", "Tutor Agent:", "Summarize Agent:")
-        
-        for msg in reversed(messages):
-            if msg and isinstance(msg, str):
-                msg_clean = msg.strip()
-                if msg_clean.startswith("System:") or msg_clean.startswith("Mimi:"):
-                    continue
-                
-                # Check for agent prefixes
-                found_prefix = False
-                for prefix in agent_prefixes:
-                    if msg_clean.startswith(prefix):
-                        response_text = msg_clean.split(prefix, 1)[-1].strip()
-                        found_prefix = True
-                        break
-                
-                if found_prefix:
-                    return ChatResponse(response=response_text)
-                
-                if any(v in msg_clean for v in ["APPROVE | Reason", "REVISE | Reason"]):
-                    continue
-                
-                response_text = msg_clean
-                break
-        
+        results = await asyncio.wait_for(
+            asyncio.to_thread(graph.invoke, initial_state), 
+            timeout=60.0
+        )
+        response_text = extract_final_response(results)
         return ChatResponse(response=response_text)
+    except asyncio.TimeoutError:
+        print("Timeout in mimi_chat_multimodal after 60.0s")
+        return ChatResponse(response=MIMI_FALLBACK_MSG)
     except Exception as e:
         print(f"Error in mimi_chat_multimodal: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return ChatResponse(response=MIMI_FALLBACK_MSG)
 
 @app.on_event("startup")
 async def startup_event():
     # Diagnostic: Print folder structure
     print(f"  [Startup] CWD: {os.getcwd()}")
-    try:
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
-        print(f"  [Startup] Repo Root: {repo_root}")
-        print(f"  [Startup] Files in Root: {os.listdir(repo_root)}")
-        if os.path.exists(os.path.join(repo_root, "materials")):
-            print(f"  [Startup] Materials found in Root: {os.listdir(os.path.join(repo_root, 'materials'))}")
-    except Exception as e:
-        print(f"  [Startup] Diagnostic error: {e}")
-
-    # Automatically sync Mimi Science material if present in materials folder
-    try:
-        from core.agents.policy_agent import KnowledgeAgent
-        agent = KnowledgeAgent()
-        print("  [Startup] Checking for Science materials...")
-        count = agent.sync_mimi_learning()
-        if count > 0:
-            print(f"  [Startup] Knowledge Base updated with {count} science segments.")
-        else:
-            print("  [Startup] No new science materials indexed.")
-    except Exception as e:
-        print(f"  [Startup] Sync failed: {e}")
+    import asyncio
+    
+    def sync_task():
+        try:
+            from core.agents.policy_agent import KnowledgeAgent
+            agent = KnowledgeAgent()
+            print("  [Startup] Syncing Mimi Science materials (async)...")
+            count = agent.sync_mimi_learning()
+            print(f"  [Startup] Knowledge Base updated with {count} segments.")
+        except Exception as e:
+            print(f"  [Startup] Sync failed: {e}")
+            
+    # Run synchronously blocking operations in a thread pool non-blocking the FastAPI event loop
+    asyncio.create_task(asyncio.to_thread(sync_task))
 
 @app.get("/health")
 async def health():
@@ -260,6 +295,14 @@ async def manual_sync():
         return {"status": "success", "ingested": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/mimi/feedback")
+async def mimi_feedback(request: FeedbackRequest):
+    # Log feedback for analytics/review
+    # In a fully persistent system, this would write to a DB
+    icon = "👍" if request.rating > 0 else "👎"
+    print(f"  [Feedback] {icon} Session: {request.session_id} | Msg Index: {request.message_index}")
+    return {"status": "success", "recorded": True}
 
 if __name__ == "__main__":
     import uvicorn

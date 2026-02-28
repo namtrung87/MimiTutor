@@ -1,3 +1,4 @@
+import json
 from typing import Literal
 from pydantic import BaseModel
 from core.state import AgentState
@@ -9,7 +10,7 @@ class IntentClassification(BaseModel):
 
 class MimiRouter:
     def __init__(self):
-        self.llm = LLMManager()
+        self.llm = LLMManager(app_name="mimi_hometutor")
 
     def classify_intent(self, user_input: str) -> IntentClassification:
         """
@@ -29,9 +30,15 @@ class MimiRouter:
         
         prompt = f"USER INPUT: {user_input}"
         
+        # Fast rule-based check first to save LLM calls
+        rule_result = self._rule_based_fallback(user_input)
+        if rule_result.reason != "Rule-based: Defaulting to General.":
+            print(f"  [MimiRouter] Confident rule-match: {rule_result.intent} ({rule_result.reason})")
+            return rule_result
+            
         try:
             # Use a faster/cheaper model for routing (L1)
-            response = self.llm.query(f"{system_prompt}\n\n{prompt}", complexity="L1")
+            response = self.llm.query_sync(f"{system_prompt}\n\n{prompt}", complexity="L1")
             
             # Basic cleanup if LLM includes markdown
             if "```json" in response:
@@ -39,6 +46,17 @@ class MimiRouter:
             
             import json
             data = json.loads(response)
+            
+            # Resiliency: Handle case where LLM returns 'classification' instead of 'intent'
+            if "classification" in data and "intent" not in data:
+                data["intent"] = data["classification"]
+            
+            # Ensure intent is uppercase match Literal
+            if "intent" in data:
+                data["intent"] = data["intent"].upper()
+                if data["intent"] not in ["THEORY", "EXERCISE", "GENERAL"]:
+                    data["intent"] = "GENERAL"
+
             return IntentClassification(**data)
         except Exception as e:
             print(f"  [MimiRouter] Routing error: {e}. Falling back to rule-based.")
@@ -46,11 +64,23 @@ class MimiRouter:
 
     def _rule_based_fallback(self, user_input: str) -> IntentClassification:
         ui = user_input.lower()
-        exercise_keywords = ["giải", "đáp án", "kết quả", "bài tập", "bài 1", "bài 2", "solve", "answer", "exercise", "=", "+", "-", "x", "/", "phương trình"]
+        
+        # 1. GENERAL/GREETINGS (Check first to avoid misfiring)
+        greeting_keywords = ["chào", "hi", "hello", "xin chào", "cảm ơn", "tạm biệt", "ok", "bye", "thanks", "thank you"]
+        if any(w in ui for w in greeting_keywords) and len(ui.split()) < 4:
+            return IntentClassification(intent="GENERAL", reason="Rule-based: Greeting/General detected.")
+
+        # 2. EXERCISE (More specific, check before THEORY)
+        exercise_keywords = ["giải", "đáp án", "kết quả", "bài tập", "bài tập 1", "bài tập 2", "tính", "tìm", "thực hành", "solve", "answer", "exercise", "=", "+", "-", " * ", " / ", " + ", " - "]
         if any(w in ui for w in exercise_keywords):
             return IntentClassification(intent="EXERCISE", reason="Rule-based: Exercise keywords detected.")
         
-        theory_keywords = ["là gì", "tóm tắt", "giảng", "giải thích", "explain", "summarize", "concept", "ý nghĩa", "tại sao"]
+        # Check for ' x ' as multiplication but avoid 'xin'
+        if " x " in ui or (ui.startswith("x ") and len(ui) > 2):
+             return IntentClassification(intent="EXERCISE", reason="Rule-based: Multiplication detected.")
+        
+        # 3. THEORY
+        theory_keywords = ["là gì", "tóm tắt", "giảng", "giải thích", "explain", "summarize", "concept", "ý nghĩa", "tại sao", "học những gì", "học gì", "nội dung", "chương", "unit", "kiến thức", "bài"]
         if any(w in ui for w in theory_keywords):
             return IntentClassification(intent="THEORY", reason="Rule-based: Theory keywords detected.")
             

@@ -1,18 +1,38 @@
+import sqlite3
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
 from core.state import AgentState
-from core.mock_llm import MockLLM
-from core.vector_store_chroma import ChromaSkillStore
 import os
+import json
+
+_store = None
+_checkpointer = None
+
+def _get_checkpointer():
+    """Lazily initialize the SQLite checkpointer."""
+    global _checkpointer
+    if _checkpointer is None:
+        conn = sqlite3.connect("orchesta_checkpoints.db", check_same_thread=False)
+        _checkpointer = SqliteSaver(conn)
+    return _checkpointer
+
+def _get_store():
+    """Lazy-load ChromaSkillStore to avoid slow imports at startup."""
+    global _store
+    if _store is None:
+        from core.vector_store_chroma import ChromaSkillStore
+        try:
+            print("  [Graph] Initializing ChromaSkillStore...")
+            _store = ChromaSkillStore()
+        except Exception as e:
+            print(f"  [Graph] Warning: Could not initialize ChromaDB: {e}")
+            _store = None
+    return _store
 
 # Initialize tools
-llm = MockLLM()
-# We initialize store lazily or globally. For this graph, lets do it inside nodes or init here if safe.
-# Assuming store handles its own connection.
-try:
-    store = ChromaSkillStore()
-except Exception as e:
-    print(f"Warning: Could not initialize ChromaDB: {e}")
-    store = None
+def _get_llm():
+    from core.mock_llm import MockLLM
+    return MockLLM()
 
 def load_file_node(state: AgentState):
     """Reads the file content."""
@@ -44,6 +64,7 @@ def extract_skill_node(state: AgentState):
     # Simulate LLM extraction
     # In real world: messages = [SystemMessage(...), HumanMessage(content)]
     # response = model.invoke(messages)
+    llm = _get_llm()
     skill = llm.extract_skill(content)
     # Inject source file info
     skill["source_file"] = state["input_file"]
@@ -56,6 +77,7 @@ def extract_skill_node(state: AgentState):
 def save_skill_node(state: AgentState):
     """Saves the extraction to Vector Store."""
     skill = state.get("extracted_skill")
+    store = _get_store()
     if skill and store:
         print(f"  [Graph] Saving skill: {skill['title']}")
         store.add_skill(skill)
@@ -105,8 +127,8 @@ def validate_skill_node(state: AgentState):
             "messages": [f"AI Judge Feedback: {feedback}"]
         }
 
-def build_graph():
-    """Constructs the compiled graph with self-correction."""
+def build_graph(persist: bool = True):
+    """Constructs the compiled graph with self-correction and optional persistence."""
     workflow = StateGraph(AgentState)
 
     # Add nodes
@@ -146,4 +168,6 @@ def build_graph():
     
     workflow.add_edge("save_skill", END)
 
-    return workflow.compile()
+    # Compile with checkpointer for durable state
+    checkpointer = _get_checkpointer() if persist else None
+    return workflow.compile(checkpointer=checkpointer)

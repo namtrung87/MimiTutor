@@ -1,12 +1,12 @@
 import os
 import time
+import asyncio
 from core.state import AgentState
 from core.utils.observability import obs
 from core.utils.memory_manager import memory_manager
 from core.utils.llm_manager import ContextPruner
 from core.utils.priority_memory import priority_memory
 from core.utils.interaction_logger import logger as interaction_logger
-from skills.wellness.oura_client import OuraClient
 
 def memory_retrieval_node(state: AgentState):
     """Phase 3: Fetches long-term memory."""
@@ -18,13 +18,6 @@ def memory_retrieval_node(state: AgentState):
     
     if user_input:
         memories = memory_manager.search_memories(str(user_input), user_id=user_id)
-        
-        # Phase 13: Always fetch the latest Learning Profile
-        profile_mem = memory_manager.search_memories("[LEARNING_PROFILE]", user_id=user_id, limit=1)
-        if profile_mem:
-            # Prepend profile to ensure it's prioritized in context
-            memories = profile_mem + memories
-            
         simplified = [m["text"] for m in memories] if memories else []
         
         # Opus 4.6 Optimization: Compact context if it's getting heavy
@@ -44,7 +37,7 @@ def retry_increment_node(state: AgentState):
     print(f"  [System] Incrementing retry count to {count}")
     return {"retry_count": count, "routing_category": None}
 
-def finalize_session_node(state: AgentState):
+async def finalize_session_node(state: AgentState):
     """Phase 3: Saves memory. Phase 4: Monitoring."""
     user_id = state.get("user_id", "default_user")
     messages = state.get("messages", [])
@@ -55,15 +48,36 @@ def finalize_session_node(state: AgentState):
         "category": state.get("routing_category")
     })
     
-    if len(messages) >= 2:
-        user_msg = messages[-2]
-        ai_msg = messages[-1]
-        memory_manager.add_memory(
-            f"User: {user_msg}\nAssistant: {ai_msg}", 
+    # Smart extraction: find actual user input and agent response
+    user_msg = None
+    ai_msg = None
+
+    FALLBACK_MARKERS = ["cần thêm một chút thời gian", "đứt dòng suy nghĩ", "hỏi lại chị sau"]
+
+    for msg in messages:
+        if isinstance(msg, str) and msg.startswith("Mimi:"):
+            user_msg = msg
+
+    for msg in reversed(messages):
+        if isinstance(msg, str) and any(p in msg for p in ["Mimi Agent:", "Socratic Agent:", "Summarize Agent:"]):
+            # Skip fallback responses - don't poison memory
+            if any(marker in msg for marker in FALLBACK_MARKERS):
+                print(f"  [Finalize] Skipping fallback response from memory storage.")
+                ai_msg = None
+                break
+            ai_msg = msg
+            break
+
+    if user_msg and ai_msg:
+        # Now async and context-aware
+        await memory_manager.add_memory(
+            user_input=user_msg,
+            ai_response=ai_msg,
             user_id=user_id
         )
-        return {"messages": ["System: Session finalized & memories stored."]}
-    return {"messages": ["System: Skip memory update."]}
+        return {"messages": ["System: Session finalized & memories distilled."]}
+
+    return {"messages": ["System: Skip memory update (fallback or missing data)."]}
 
 def priority_lookup_node(state: AgentState):
     """Checks for golden answers in priority memory before LLM query."""
@@ -86,7 +100,7 @@ def priority_lookup_node(state: AgentState):
             }
     return {}
 
-def mimi_logging_node(state: AgentState):
+async def _mimi_logging_node_async(state: AgentState):
     """Logs the interaction to SQLite for parent review."""
     messages = state.get("messages", [])
     if len(messages) < 2: return {}
@@ -108,7 +122,7 @@ def mimi_logging_node(state: AgentState):
         tags = ["#Study", "#Mimi"]
         if "exercise" in str(state.get("routing_category", "")): tags.append("#Exercise")
         
-        interaction_logger.log_interaction(
+        await interaction_logger.log_interaction(
             user_id=state.get("user_id", "default_user"),
             user_input=user_input,
             intent=state.get("routing_category", "unknown"),
@@ -118,6 +132,19 @@ def mimi_logging_node(state: AgentState):
             metadata={"source": "mimi_tutor"}
         )
     return {}
+
+def mimi_logging_node(state: AgentState):
+    """Sync wrapper for LangGraph."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import nest_asyncio
+            nest_asyncio.apply()
+            return loop.run_until_complete(_mimi_logging_node_async(state))
+        else:
+            return loop.run_until_complete(_mimi_logging_node_async(state))
+    except RuntimeError:
+        return asyncio.run(_mimi_logging_node_async(state))
 
 def token_tracker_node(state: AgentState):
     """Tracks cumulative token usage."""
@@ -135,10 +162,16 @@ def token_tracker_node(state: AgentState):
 def readiness_check_node(state: AgentState):
     """Fetches user readiness to adapt system behavior."""
     try:
-        oura = OuraClient()
-        score_data = oura.get_readiness_score()
-        score = score_data.get("score", 70)
-    except:
+        try:
+            from skills.wellness.oura_client import OuraClient
+            oura = OuraClient()
+            score_data = oura.get_readiness_score()
+            score = score_data.get("score", 70)
+        except ImportError:
+            score = 70
+            print("  [System] Readiness Check: OuraClient not found. Using default score.")
+    except Exception as e:
+        print(f"  [System] Readiness Check failed: {e}")
         score = 70
     print(f"  [System] Readiness Check: {score}")
     return {"readiness_score": score, "messages": [f"System: Biometric Readiness is {score}%"]}

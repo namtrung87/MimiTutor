@@ -88,7 +88,7 @@ class ChatbotHandler:
     """
     
     def __init__(self):
-        self.llm = LLMManager()
+        self.llm = LLMManager(app_name="telegram_bot")
         self.memory = ConversationMemory()
         self.log_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / "08_Growth_Branding" / "chat_logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,14 @@ class ChatbotHandler:
         if faq_path.exists():
             knowledge_parts.append(faq_path.read_text(encoding="utf-8"))
         
-        return "\n\n".join(knowledge_parts) if knowledge_parts else "Bạn là trợ lý AI thông minh, chuyên tư vấn về AI và công nghệ."
+        full_kb = "\n\n".join(knowledge_parts) if knowledge_parts else "Bạn là trợ lý AI thông minh, chuyên tư vấn về AI và công nghệ."
+        
+        # Prune to save tokens (approx 2000 chars limit)
+        if len(full_kb) > 2000:
+            print(f"  [Chatbot] ⚠️ Knowledge Base too large ({len(full_kb)} chars). Pruning to 2000.")
+            full_kb = full_kb[:2000] + "\n... [Knowledge Pruned to save tokens]"
+            
+        return full_kb
     
     def handle_message(
         self,
@@ -172,7 +179,7 @@ TRẢ LỜI (CHỈ nội dung phản hồi, không giải thích):
 """
         
         try:
-            response = self.llm.query(prompt, complexity="L1")
+            response = self.llm.query_sync(prompt, complexity="L1")
             
             if not response:
                 response = "Cảm ơn bạn đã nhắn tin! Mình sẽ phản hồi ngay khi có thể. 😊"

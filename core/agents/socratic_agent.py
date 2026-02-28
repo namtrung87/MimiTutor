@@ -1,6 +1,9 @@
 from core.agents.policy_agent import KnowledgeAgent
 from core.state import AgentState
+from core.services.mimi_learning_tracker import learning_tracker
 import os
+import json
+import re
 
 class SocraticAgent(KnowledgeAgent):
     """
@@ -12,12 +15,12 @@ class SocraticAgent(KnowledgeAgent):
         self.system_prompt = self._load_socratic_prompt()
 
     def _load_socratic_prompt(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        prompt_path = os.path.join(current_dir, "../../prompts", "mimi_socratic.md")
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        prompt_path = os.path.join(root_dir, "prompts", "mimi_socratic.md")
         if os.path.exists(prompt_path):
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 return f.read()
-        return "You are a Socratic Science Tutor. Do not mention missing files."
+        return "You are a Socratic tutor. Only ask questions to guide the student."
 
     def socratic_node(self, state: AgentState):
         """
@@ -50,51 +53,33 @@ class SocraticAgent(KnowledgeAgent):
         critic_feedback = state.get("critic_feedback")
         feedback_section = f"\n--- CRITIC FEEDBACK (REVISE YOUR PREVIOUS RESPONSE) ---\n{critic_feedback}\n" if critic_feedback else ""
 
-        # Filter memory and extract learning profile
+        # Filter memory
         raw_memory = state.get('long_term_memory', [])
-        clean_memory = []
-        learning_profile = "None."
-        
-        if isinstance(raw_memory, list):
-            for m in raw_memory:
-                if "[LEARNING_PROFILE]" in str(m):
-                    learning_profile = str(m)
-                elif "readiness" not in str(m).lower() and "tension" not in str(m).lower():
-                    clean_memory.append(m)
-        else:
-            clean_memory = str(raw_memory)
-            
+        clean_memory = [m for m in raw_memory if "readiness" not in str(m).lower() and "tension" not in str(m).lower()] if isinstance(raw_memory, list) else str(raw_memory)
         memory_str = "\n".join([f"- {m}" for m in clean_memory]) if isinstance(clean_memory, list) else clean_memory
         
-        # Filter history
+        # Filter history - Limit to last 4 messages to save context & cost
         history = [m for m in state['messages'][:-1] if isinstance(m, str) and not m.startswith("System:")]
+        if len(history) > 4:
+            history = history[-4:]
         
         full_prompt = f"""
         {self.system_prompt}
         
-        --- TASK: SCIENCE TUTOR (STAGE 7) ---
+        --- TASK: EXERCISE / PROBLEM SOLVING ---
         Use THE SOCRATIC METHOD. Break down the problem, provide hints. DO NOT give the answer.
         
-        CRITICAL RULE: STICK EXCLUSIVELY TO THE CAMBRIDGE LOWER SECONDARY SCIENCE STAGE 7 CURRICULUM.
-        Do not confuse with other levels. Use the provided context from the knowledge base as your primary source of truth.
+        CRITICAL RULE: YOU ARE A TUTOR FOR A CHILD (MIMI). DO NOT offer psychological advice, stress management techniques, or discuss biometric data. STRICTLY FOCUS ON THE ACADEMIC SUBJECT.
         
         {feedback_section}
-        
-        --- STUDENT LEARNING PROFILE ---
-        {learning_profile}
-        
-        PEDAGOGICAL INSTRUCTION:
-        1. Check "Mastered Topics" and use them as analogies to explain new concepts.
-        2. Check "Struggled Topics" and provide extra scaffolding/patience when these arise.
-        3. If "Poor Responses" are noted, simplify your language and be more encouraging.
         
         --- TEACHER FEEDBACK ON STUDENT ---
         {teacher_feedback}
         
-        --- STUDY MATERIAL CONTEXT (CAMBRIDGE SCIENCE 7) ---
-        {context_str if context_str else "Sử dụng kiến thức chuẩn về chương trình Cambridge Science Stage 7 để giải thích."}
+        --- STUDY MATERIAL CONTEXT ---
+        {context_str if context_str else "No specific study material found in database."}
         
-        --- RELEVANT PAST CONTEXT ---
+        --- LONG-TERM MEMORY (USER HISTORY) ---
         {memory_str if memory_str else 'None.'}
 
         --- CHAT HISTORY ---
@@ -114,7 +99,24 @@ class SocraticAgent(KnowledgeAgent):
         # Log the interaction
         self._log_interaction(user_input_clean, response)
         
+        # 2. Update Learning Tracker (Sprint 3)
+        try:
+            subject = self._detect_subject(user_input_clean)
+            # Basic logic: if the response ends with a question, it's a progress point (+2)
+            # If it's a greeting, no progress.
+            mastery = 2 if "?" in response else 0
+            learning_tracker.log_session(subject, user_input_clean[:50], response[:100], mastery)
+        except Exception as e:
+            print(f"  [SocraticAgent] Tracker failed: {e}")
+        
         return {"messages": [f"Mimi Agent: {response}"]}
+
+    def _detect_subject(self, text: str) -> str:
+        text = text.lower()
+        if any(w in text for w in ["toán", "math", "số", "cộng", "trừ"]): return "Math"
+        if any(w in text for w in ["science", "khoa học", "vật lý", "hóa học", "sinh học"]): return "Science"
+        if any(w in text for w in ["văn", "literature", "tiếng việt"]): return "Literature"
+        return "English" # Default
 
     def _get_rule_based_response(self, user_input, context, mode, sources):
         """

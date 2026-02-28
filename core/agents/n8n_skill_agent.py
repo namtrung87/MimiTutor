@@ -19,19 +19,26 @@ class N8NSkillAgent:
         
         print(f"  [n8n Skill Agent] Analyzing request: {user_input[:50]}...")
 
-        # 1. First, use LLM to extract structured data for the n8n webhook
-        prompt = f"""
-        Extract the action and parameters for an automation workflow.
-        User Input: {user_input}
-        Possible Actions: google_calendar_add, google_calendar_list, notion_add_page, slack_message, generic_api_call.
+    def _get_prompt(self):
+        if not hasattr(self, "_cached_prompt") or self._cached_prompt is None:
+            root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
+            prompt_path = os.path.join(root_dir, "prompts", "n8n_skill_extraction.md")
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    self._cached_prompt = f.read()
+            else:
+                self._cached_prompt = "Extract action and params for automation."
+        return self._cached_prompt
 
-        Return a JSON object:
-        {{
-            "action": "action_name",
-            "params": {{ ... }},
-            "context": "{role}"
-        }}
-        """
+    async def execute(self, state: AgentState) -> dict:
+        user_input = state["messages"][-1] if state["messages"] else ""
+        role = state.get("routing_category", "general")
+        
+        print(f"  [n8n Skill Agent] Analyzing request: {user_input[:50]}...")
+
+        # 1. First, use LLM to extract structured data for the n8n webhook
+        prompt_template = self._get_prompt()
+        prompt = prompt_template.format(user_input=user_input, role=role)
         
         try:
             raw_response = self.llm.query(prompt, complexity="L2")

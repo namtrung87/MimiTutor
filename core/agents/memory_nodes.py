@@ -1,56 +1,60 @@
 """
-Memory Nodes: Context Engineering Utilities
-==========================================
-Includes nodes for compaction and history management.
+Memory Nodes: Context Engineering & Long-term Storage
+===================================================
+Includes nodes for real-time fact extraction and long-term memory integration.
 """
 from typing import Dict, Any, List
-from core.utils.llm_manager import LLMManager
-
-llm = LLMManager()
+from core.services.memory_service import memory_service
 
 def memory_compaction_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Summarizes the chat history into a single 'Context Summary' 
-    when the message chain gets too long.
+    Automated Fact Extraction:
+    Extracts core facts from the current interaction and saves to Mem0.
     """
     messages = state.get("messages", [])
-    token_count = state.get("token_tracker", 0)
+    user_id = state.get("user_id", "default_user")
     
-    # Threshold for compaction: > 15 messages OR > 8000 estimated tokens
-    if len(messages) < 15 and token_count < 8000:
+    if not messages:
         return {}
 
-    print(f"  [Memory] Compacting history ({len(messages)} messages, {token_count} tokens)...")
+    # Extract the last few messages to identify facts
+    # In a real workflow, we might only do this periodically or upon task completion
+    last_interaction = "\n".join(messages[-2:])
     
-    # Take the last 5 messages to preserve immediate continuity
-    preserved_messages = messages[-5:]
-    messages_to_summarize = messages[:-5]
+    print(f"  [Memory] Auto-extracting facts for user {user_id}...")
     
-    context_str = "\n".join(messages_to_summarize)
-    
-    prompt = f"""
-    You are a Memory Manager. Summarize the following agent conversation into a concise 
-    'Context Summary' that preserves all key decisions, extracted facts, and pending tasks.
-    
-    CONVERSATION:
-    {context_str}
-    
-    Format:
-    # 🧠 Context Summary
-    - **Past Decisions**: ...
-    - **Key Facts**: ...
-    - **Pending Items**: ...
+    try:
+        # Mem0 handles the extraction and storage internally
+        memory_service.add_memory(user_id=user_id, text=last_interaction)
+        return {"messages": ["System: [Memory] Facts extracted and saved to long-term memory."]}
+    except Exception as e:
+        print(f"  [Memory] Warning: Fact extraction failed: {e}")
+        return {}
+
+def memory_retrieval_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
+    Retrieves relevant user facts from Mem0 to inject into the current context.
+    """
+    user_id = state.get("user_id", "default_user")
+    messages = state.get("messages", [])
     
-    summary = llm.query(prompt, complexity="L2")
+    if not messages:
+        return {}
+        
+    query = messages[-1]
+    print(f"  [Memory] Retrieving facts for: {query[:50]}...")
     
-    # Return new message list: [Summary, ...Preserved]
-    # Note: langgraph custom Reducer (operator.add) will append this.
-    # To 'replace' or 'compact', we'd need a different state management approach,
-    # but for this system, we label the summary clearly.
-    
-    compacted_msg = f"System: [MEMORY COMPACTED]\n{summary}"
-    
-    # Since we use Annotated[List[str], operator.add], we can't easily 'wipe' history
-    # without changing the state schema. Instead, we insert the summary.
-    return {"messages": [compacted_msg]}
+    try:
+        memories = memory_service.search_memory(user_id=user_id, query=query)
+        facts = [m['memory'] for m in memories]
+        
+        if facts:
+            fact_str = "\n".join([f"- {f}" for f in facts])
+            return {
+                "long_term_memory": facts,
+                "messages": [f"System: [Memory] Retrieved context: {fact_str[:100]}..."]
+            }
+    except Exception as e:
+        print(f"  [Memory] Warning: Retrieval failed: {e}")
+        
+    return {}

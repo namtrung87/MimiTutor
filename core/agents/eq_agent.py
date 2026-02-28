@@ -1,20 +1,22 @@
 from core.state import AgentState
 from typing import Dict, Any
+from core.agents.base_agent import BaseAgent
+from core.utils.error_handler import with_agent_fallback
 
-class EQAgent:
+class EQAgent(BaseAgent):
     """
     Agent responsible for Emotional Intelligence and Nervous System Regulation.
     Analyzes physiological data to predict emotional load and suggest interventions.
     """
-    def __init__(self):
-        pass
+    name = "eq_agent"
+    prompt_file = "wellness_performance_coach"
+    domain = "wellness"
 
     def analyze_emotional_load(self, state: AgentState) -> Dict[str, Any]:
         """
         Predict mood/stress levels based on HRV and REM sleep.
         """
         readiness = state.get("readiness_score", 70)
-        # Mocking REM/HRV data extraction from state or external source
         # In a real scenario, this would come from OuraClient.get_sleep_metrics()
         
         load_score = 100 - readiness
@@ -46,6 +48,7 @@ class EQAgent:
             "emotional_state": analysis
         }
 
+@with_agent_fallback()
 def eq_agent_node(state: AgentState):
     agent = EQAgent()
     return agent.process_request(state)

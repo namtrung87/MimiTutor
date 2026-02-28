@@ -37,7 +37,9 @@ class PriorityMemory:
             with open(self.fallback_path, 'r', encoding='utf-8') as f:
                 try:
                     data = json.load(f)
-                except: pass
+                except Exception as e:
+                    print(f"  [PriorityMemory] Error loading JSON: {e}")
+                    pass
         
         data.append({
             "question": question,
@@ -57,7 +59,9 @@ class PriorityMemory:
         with open(self.fallback_path, 'r', encoding='utf-8') as f:
             try:
                 data = json.load(f)
-            except: return None
+            except Exception as e:
+                print(f"  [PriorityMemory] Search error: {e}")
+                return None
             
         q_lower = question.lower().strip()
         # Search for exact match (or simple string overlap for basic priority)

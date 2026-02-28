@@ -1,7 +1,5 @@
 import os
 import time
-import posthog
-from portkey_ai import Portkey
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -15,27 +13,46 @@ class ObservabilityManager:
     3. Performance Monitoring (Latency/Tokens)
     """
     def __init__(self):
-        # PostHog Setup
         self.posthog_key = os.getenv("POSTHOG_API_KEY")
         self.posthog_host = os.getenv("POSTHOG_HOST", "https://app.posthog.com")
-        if self.posthog_key:
-            posthog.project_api_key = self.posthog_key
-            posthog.host = self.posthog_host
-        
-        # Portkey Setup for Tracing/Gateway
         self.portkey_key = os.getenv("PORTKEY_API_KEY")
-        if self.portkey_key:
-            self.portkey = Portkey(api_key=self.portkey_key)
-        else:
-            self.portkey = None
+        self._posthog_client = None
+        self._portkey_client = None
+
+    @property
+    def posthog(self):
+        """Lazy-load posthog."""
+        if self._posthog_client is None and self.posthog_key:
+            try:
+                import posthog
+                posthog.project_api_key = self.posthog_key
+                posthog.host = self.posthog_host
+                self._posthog_client = posthog
+            except ImportError:
+                print("  [Observability] Posthog not installed.")
+        return self._posthog_client
+
+    @property
+    def portkey(self):
+        """Lazy-load portkey."""
+        if self._portkey_client is None and self.portkey_key:
+            try:
+                from portkey_ai import Portkey
+                self._portkey_client = Portkey(api_key=self.portkey_key)
+            except ImportError:
+                print("  [Observability] Portkey not installed.")
+        return self._portkey_client
 
     def track_event(self, user_id: str, event_name: str, properties: Dict[str, Any]):
         """Tracks an agent event in PostHog."""
-        if self.posthog_key:
+        client = self.posthog
+        if client:
             print(f"  [PostHog] Tracking event: {event_name} for user: {user_id}")
-            posthog.capture(user_id, event_name, properties)
+            client.capture(user_id, event_name, properties)
         else:
-            print(f"  [PostHog] Warning: API Key missing. Skipping trace for {event_name}")
+            # Only print if key exists but client failed, otherwise stay silent
+            if self.posthog_key:
+                print(f"  [PostHog] Warning: Failed to initialize. Skipping trace for {event_name}")
 
     def start_trace(self, trace_id: str, component: str):
         """Mock/Utility for starting a trace span (useful for Portkey/LangSmith)."""
